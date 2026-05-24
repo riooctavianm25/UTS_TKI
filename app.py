@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import re
 import math
 from collections import defaultdict
@@ -95,217 +96,476 @@ def load_data():
 
     return records, sentences, stemmer, stopwords
 
-st.title("Information Retrieval Dashboard")
-st.markdown("### Manajemen Energi - Text Preprocessing & Search")
+def calculate_tfidf(records):
+    """Calculate TF-IDF matrix"""
+    # Collect all unique terms
+    all_terms = set()
+    for rec in records:
+        all_terms.update(rec['Stemming'])
+    all_terms = sorted(list(all_terms))
+    
+    # Calculate IDF
+    idf = {}
+    num_docs = len(records)
+    for term in all_terms:
+        doc_count = sum(1 for rec in records if term in rec['Stemming'])
+        idf[term] = math.log(num_docs / max(1, doc_count)) if doc_count > 0 else 0
+    
+    # Calculate TF-IDF for each document
+    tfidf_matrix = []
+    for rec in records:
+        tf = {}
+        for term in all_terms:
+            count = rec['Stemming'].count(term)
+            tf[term] = count / len(rec['Stemming']) if rec['Stemming'] else 0
+        
+        tfidf_vec = {term: tf.get(term, 0) * idf[term] for term in all_terms}
+        tfidf_matrix.append(tfidf_vec)
+    
+    return tfidf_matrix, idf, all_terms
 
+def cosine_similarity(vec1, vec2, all_terms):
+    """Calculate cosine similarity between two vectors"""
+    dot_product = sum(vec1.get(term, 0) * vec2.get(term, 0) for term in all_terms)
+    mag1 = math.sqrt(sum(v**2 for v in vec1.values()))
+    mag2 = math.sqrt(sum(v**2 for v in vec2.values()))
+    
+    if mag1 == 0 or mag2 == 0:
+        return 0
+    return dot_product / (mag1 * mag2)
+
+def style_dataframe_gradient(df, columns=None):
+    """Apply background gradient to dataframe"""
+    def gradient_color(val):
+        if isinstance(val, str):
+            return ''
+        if val == 0:
+            return 'background-color: #ffe6f0'
+        normalized = min(val / (df[df.columns[0]].max()) if df[df.columns[0]].max() > 0 else 1, 1)
+        return f'background-color: rgba(144, 238, 144, {normalized})'
+    
+    if columns is None:
+        columns = df.columns
+    return df.style.applymap(lambda x: gradient_color(x) if isinstance(x, (int, float)) else '')
+
+# Sidebar Navigation
+st.sidebar.title("📊 Navigation")
+main_menu = st.sidebar.radio("Main Menu", ["📄 Shelf Monitoring", "⚙️ Search Engine"])
+
+if main_menu == "📄 Shelf Monitoring":
+    sub_menu = st.sidebar.radio("Sub-Menu", ["Preprocessing", "Inverted Index", "Forward Index"])
+else:
+    sub_menu = st.sidebar.radio("Sub-Menu", ["Boolean Search", "VSM Search"])
+
+# Load data
 with st.spinner("Loading data..."):
     records, sentences, stemmer, stopwords = load_data()
+    tfidf_matrix, idf_dict, all_terms = calculate_tfidf(records)
 
-# Metrics
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Total Documents", len(records))
-with col2:
-    st.metric("Total Sentences", len(sentences))
-with col3:
-    total_tokens = sum(len(rec['Stemming']) for rec in records)
-    st.metric("Total Tokens (after stemming)", total_tokens)
-with col4:
-    unique_terms = len(set(t for rec in records for t in rec['Stemming']))
-    st.metric("Unique Terms", unique_terms)
+# Top Section: Search & Filters
+st.title("📊 Information Retrieval System")
+st.markdown("### Manajemen Energi Dataset")
 
-# Tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["📄 Preprocessing", "🔍 Inverted Index", "🔄 Forward Index", "⚙️ Boolean Search", "🎯 VSM Search"]
-)
+# Search box and filters
+col_search, col_filter1, col_filter2 = st.columns([2, 1, 1])
+with col_search:
+    search_query = st.text_input("", placeholder="Search...")
+with col_filter1:
+    retailer_filter = st.selectbox("", ["All Retailers"], key="retailer")
+with col_filter2:
+    category_filter = st.selectbox("", ["All Categories"], key="category")
 
-# TAB 1: PREPROCESSING
-with tab1:
-    st.subheader("Text Preprocessing Pipeline")
-    
-    # Display table with key columns
-    df_display = pd.DataFrame([{
-        'DocID': rec['DocID'],
-        'Teks Mentah': rec['Teks Mentah'][:60] + '...',
-        'Tokens': ', '.join(rec['Tokenisasi'][:5]) + ('...' if len(rec['Tokenisasi']) > 5 else ''),
-        'After Stemming': ', '.join(rec['Stemming'][:5]) + ('...' if len(rec['Stemming']) > 5 else ''),
-        'Unique Terms': len(rec['Stemming'])
-    } for rec in records])
-    
-    st.dataframe(df_display, use_container_width=True)
-    
-    # Detail view
-    st.markdown("---")
-    st.subheader("Detail View")
-    doc_select = st.selectbox("Pilih dokumen:", [rec['DocID'] for rec in records])
-    selected_rec = next(r for r in records if r['DocID'] == doc_select)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.info("**Original Text**")
-        st.write(selected_rec['Teks Mentah'])
-    with col2:
-        st.info("**After Processing**")
-        st.write(f"**Stemmed Terms:** {', '.join(selected_rec['Stemming'])}")
+st.markdown("---")
 
-# TAB 2: INVERTED INDEX
-with tab2:
-    st.subheader("Inverted Index")
+# KPI Cards
+kpi_col1, kpi_col2 = st.columns(2)
+
+total_docs = len(records)
+unique_terms = len(all_terms)
+keyword_density = unique_terms / total_docs if total_docs > 0 else 0
+
+with kpi_col1:
+    st.metric("📈 Total Documents Processed", f"{total_docs}", "Shelf Items")
+
+with kpi_col2:
+    st.metric("📚 Keyword Index Density", f"{keyword_density:.2f}", "Terms per Doc")
+
+st.markdown("---")
+
+
+# ============================================================================
+# SHELF MONITORING SECTION
+# ============================================================================
+
+if main_menu == "📄 Shelf Monitoring":
     
-    # Build inverted index
-    inverted_index = defaultdict(list)
-    for rec in records:
-        for term in set(rec['Stemming']):
-            inverted_index[rec['DocID']].append(term) if rec['DocID'] not in inverted_index else None
-    
-    inverted_sorted = {}
-    for rec in records:
-        for term in set(rec['Stemming']):
-            if term not in inverted_sorted:
-                inverted_sorted[term] = []
-            inverted_sorted[term].append(rec['DocID'])
-    
-    # Display
-    ii_data = []
-    for i, (term, posting) in enumerate(sorted(inverted_sorted.items())[:30], 1):
-        ii_data.append({
-            'No': i,
-            'Kata Dasar': term,
-            'Posting List': ', '.join(posting),
-            'DF': len(posting)
+    # ========== PREPROCESSING ==========
+    if sub_menu == "Preprocessing":
+        st.subheader("📋 Text Preprocessing Pipeline")
+        st.markdown("Visualization of text preprocessing stages from raw text to stemming")
+        
+        # Display table with conditional formatting
+        df_display = pd.DataFrame([{
+            'DocID': rec['DocID'],
+            'Teks Mentah': rec['Teks Mentah'][:60] + '...',
+            'Tokens': len(rec['Tokenisasi']),
+            'After Stemming': len(rec['Stemming']),
+            'Unique Terms': len(set(rec['Stemming']))
+        } for rec in records])
+        
+        # Apply gradient styling
+        styled_df = df_display.style.background_gradient(
+            subset=['Tokens', 'After Stemming', 'Unique Terms'],
+            cmap='RdYlGn',
+            vmin=0,
+            vmax=max(df_display['Unique Terms'].max(), 1)
+        ).format({
+            'Tokens': '{:.0f}',
+            'After Stemming': '{:.0f}',
+            'Unique Terms': '{:.0f}'
         })
+        
+        st.dataframe(styled_df, use_container_width=True, height=400)
+        
+        st.markdown("---")
+        st.subheader("📖 Detail View")
+        
+        doc_select = st.selectbox("Select Document:", 
+                                  options=[rec['DocID'] for rec in records],
+                                  key="preprocessing_select")
+        selected_rec = next(r for r in records if r['DocID'] == doc_select)
+        
+        tab_original, tab_processed, tab_pipeline = st.tabs(["Original", "Final Result", "Pipeline"])
+        
+        with tab_original:
+            st.info("**Original Text**")
+            st.write(selected_rec['Teks Mentah'])
+        
+        with tab_processed:
+            st.success("**After Complete Processing (Stemming)**")
+            st.write(f"**Stemmed Terms ({len(selected_rec['Stemming'])} terms):**")
+            st.write(", ".join(selected_rec['Stemming']) if selected_rec['Stemming'] else "No terms")
+        
+        with tab_pipeline:
+            st.markdown("**Processing Pipeline:**")
+            cols = st.columns(5)
+            with cols[0]:
+                st.write("**1. Case Folding**")
+                st.caption(selected_rec['Case Folding'][:100] + '...')
+            with cols[1]:
+                st.write("**2. Tokenization**")
+                st.caption(f"{len(selected_rec['Tokenisasi'])} tokens")
+            with cols[2]:
+                st.write("**3. Stopword Removal**")
+                st.caption(f"{len(selected_rec['Stopword Removal'])} terms")
+            with cols[3]:
+                st.write("**4. Stemming**")
+                st.caption(f"{len(selected_rec['Stemming'])} terms")
+            with cols[4]:
+                st.write("**5. Final**")
+                st.caption(f"Ready for indexing")
     
-    df_ii = pd.DataFrame(ii_data)
-    st.dataframe(df_ii, use_container_width=True)
-    st.caption(f"Total unique terms: {len(inverted_sorted)} (showing first 30)")
-
-# TAB 3: FORWARD INDEX
-with tab3:
-    st.subheader("Forward Index")
+    # ========== INVERTED INDEX ==========
+    elif sub_menu == "Inverted Index":
+        st.subheader("🔍 Inverted Index Structure")
+        st.markdown("Map of keywords to documents containing them")
+        
+        # Build inverted index
+        inverted_index = defaultdict(list)
+        term_freq = defaultdict(int)
+        
+        for rec in records:
+            for term in set(rec['Stemming']):
+                inverted_index[term].append(rec['DocID'])
+                term_freq[term] += rec['Stemming'].count(term)
+        
+        # Display top terms
+        ii_data = []
+        for i, term in enumerate(sorted(inverted_index.keys())[:50], 1):
+            posting = inverted_index[term]
+            ii_data.append({
+                'No': i,
+                'Term': term,
+                'Document Frequency': len(posting),
+                'Term Frequency': term_freq[term],
+                'Posting List': ', '.join(posting)
+            })
+        
+        df_ii = pd.DataFrame(ii_data)
+        
+        # Apply gradient styling
+        styled_ii = df_ii.style.background_gradient(
+            subset=['Document Frequency', 'Term Frequency'],
+            cmap='YlOrRd',
+            vmin=0,
+            vmax=max(df_ii['Document Frequency'].max(), df_ii['Term Frequency'].max(), 1)
+        )
+        
+        st.dataframe(styled_ii, use_container_width=True, height=400)
+        st.caption(f"Total unique terms: {len(inverted_index)} (showing first 50)")
+        
+        # Statistics
+        st.markdown("---")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Terms", len(inverted_index))
+        with col2:
+            avg_df = sum(len(docs) for docs in inverted_index.values()) / len(inverted_index)
+            st.metric("Avg Document Frequency", f"{avg_df:.2f}")
+        with col3:
+            max_df = max(len(docs) for docs in inverted_index.values())
+            st.metric("Max Document Frequency", max_df)
+        with col4:
+            total_tf = sum(term_freq.values())
+            st.metric("Total Term Frequency", total_tf)
     
-    fi_data = []
-    for rec in records:
+    # ========== FORWARD INDEX ==========
+    elif sub_menu == "Forward Index":
+        st.subheader("📑 Forward Index Structure")
+        st.markdown("Map of documents to their terms with frequencies")
+        
+        fi_data = []
+        for rec in records:
+            freq = defaultdict(int)
+            for term in rec['Stemming']:
+                freq[term] += 1
+            
+            top_terms = sorted(freq.items(), key=lambda x: -x[1])[:10]
+            unique_count = len(freq)
+            total_terms = len(rec['Stemming'])
+            
+            fi_data.append({
+                'DocID': rec['DocID'],
+                'Unique Terms': unique_count,
+                'Total Terms': total_terms,
+                'Top 5 Terms': ', '.join([f'{t}({f})' for t, f in top_terms[:5]]),
+                'Density': unique_count / total_terms if total_terms > 0 else 0
+            })
+        
+        df_fi = pd.DataFrame(fi_data)
+        
+        # Apply gradient styling
+        styled_fi = df_fi.style.background_gradient(
+            subset=['Unique Terms', 'Total Terms', 'Density'],
+            cmap='Blues',
+            vmin=0,
+            vmax=max(df_fi['Unique Terms'].max(), 1)
+        )
+        
+        st.dataframe(styled_fi, use_container_width=True, height=400)
+        
+        st.markdown("---")
+        st.subheader("📊 Detailed Term Frequency Analysis")
+        
+        doc_select = st.selectbox("Select Document:", 
+                                  options=[rec['DocID'] for rec in records],
+                                  key="forward_select")
+        selected_rec = next(r for r in records if r['DocID'] == doc_select)
+        
         freq = defaultdict(int)
-        for term in rec['Stemming']:
+        for term in selected_rec['Stemming']:
             freq[term] += 1
         
-        top_terms = sorted(freq.items(), key=lambda x: -x[1])[:5]
-        term_freq_str = ', '.join([f'{t}:{f}' for t, f in top_terms])
+        freq_data = sorted(freq.items(), key=lambda x: -x[1])
         
-        fi_data.append({
-            'DocID': rec['DocID'],
-            'Top Terms (Freq)': term_freq_str,
-            'Total Unique': len(freq)
-        })
-    
-    df_fi = pd.DataFrame(fi_data)
-    st.dataframe(df_fi, use_container_width=True)
+        if freq_data:
+            df_freq = pd.DataFrame(freq_data, columns=['Term', 'Frequency'])
+            
+            styled_freq = df_freq.style.background_gradient(
+                subset=['Frequency'],
+                cmap='Greens',
+                vmin=0,
+                vmax=df_freq['Frequency'].max()
+            )
+            
+            st.dataframe(styled_freq, use_container_width=True)
+        else:
+            st.info("No terms in this document")
 
-# TAB 4: BOOLEAN SEARCH
-with tab4:
-    st.subheader("Boolean Query Search")
-    
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        query_type = st.radio("Query Type:", ["AND Query", "OR Query"])
-    
-    if query_type == "AND Query":
-        terms = st.multiselect("Select terms (semua harus ada):", 
-                              sorted(set(t for rec in records for t in rec['Stemming']))[:50])
-        
-        if terms:
-            # AND operation
-            results = set(rec['DocID'] for rec in records 
-                         if all(stemmer.stem(t.lower()) in rec['Stemming'] for t in terms))
-            
-            st.write(f"**Query:** {' AND '.join(terms)}")
-            if results:
-                st.success(f"Ditemukan {len(results)} dokumen")
-                st.write(", ".join(sorted(results)))
-            else:
-                st.warning("Tidak ada dokumen yang cocok")
-    
-    else:  # OR Query
-        terms = st.multiselect("Select terms (salah satu boleh ada):", 
-                              sorted(set(t for rec in records for t in rec['Stemming']))[:50])
-        
-        if terms:
-            # OR operation
-            results = set(rec['DocID'] for rec in records 
-                         if any(stemmer.stem(t.lower()) in rec['Stemming'] for t in terms))
-            
-            st.write(f"**Query:** {' OR '.join(terms)}")
-            if results:
-                st.success(f"Ditemukan {len(results)} dokumen")
-                st.write(", ".join(sorted(results)))
-            else:
-                st.warning("Tidak ada dokumen yang cocok")
+# ============================================================================
+# SEARCH ENGINE SECTION
+# ============================================================================
 
-# TAB 5: VSM SEARCH
-with tab5:
-    st.subheader("Vector Space Model Search")
+else:
     
-    query = st.text_input("Masukkan query Anda:")
-    
-    if query:
-        # Process query
-        query_rec = {
-            'DocID': 'Query',
-            'Teks Mentah': query,
-            'Case Folding': '',
-            'Tokenisasi': [],
-            'Stopword Removal': [],
-            'Stemming': []
-        }
+    # ========== BOOLEAN SEARCH ==========
+    if sub_menu == "Boolean Search":
+        st.subheader("🔎 Boolean Query Search")
+        st.markdown("Search using AND/OR boolean operations")
         
-        # Preprocessing query
-        folded = re.sub(r'[^a-z\s]', ' ', query.lower())
-        folded = re.sub(r'\s+', ' ', folded).strip()
-        tokens = [t for t in folded.split() if len(t) >= 3]
-        no_stop = [t for t in tokens if t not in stopwords]
+        query_type = st.radio("Query Type:", 
+                             options=["AND Query", "OR Query"],
+                             horizontal=True)
         
-        stemmed = []
-        for t in no_stop:
-            stem = stemmer.stem(t)
-            if stem not in stopwords and len(stem) >= 3:
-                stemmed.append(stem)
+        # Get all unique terms for selection
+        all_unique_terms = sorted(set(t for rec in records for t in rec['Stemming']))
         
-        query_rec['Stemming'] = stemmed
-        
-        # Calculate TF-IDF similarity
-        if stemmed:
-            similarities = []
+        if query_type == "AND Query":
+            st.info("**AND Query:** Returns documents containing ALL selected terms")
+            selected_terms = st.multiselect(
+                "Select terms (all must be present):", 
+                options=all_unique_terms,
+                key="boolean_and"
+            )
             
-            for rec in records:
-                # Simple Jaccard similarity
-                query_terms = set(stemmed)
-                doc_terms = set(rec['Stemming'])
+            if selected_terms:
+                # AND operation
+                results = []
+                for rec in records:
+                    rec_terms = set(rec['Stemming'])
+                    if all(term in rec_terms for term in selected_terms):
+                        results.append({
+                            'DocID': rec['DocID'],
+                            'Text Preview': rec['Teks Mentah'][:100] + '...',
+                            'Matching Terms': ', '.join(t for t in selected_terms if t in rec_terms)
+                        })
                 
-                if query_terms and doc_terms:
-                    intersection = len(query_terms & doc_terms)
-                    union = len(query_terms | doc_terms)
-                    similarity = intersection / union if union > 0 else 0
+                st.markdown(f"**Query:** {' AND '.join([f'**{t}**' for t in selected_terms])}")
+                
+                if results:
+                    st.success(f"✅ Found {len(results)} documents")
+                    df_results = pd.DataFrame(results)
+                    st.dataframe(df_results, use_container_width=True)
+                else:
+                    st.warning("❌ No documents found matching all terms")
+        
+        else:  # OR Query
+            st.info("**OR Query:** Returns documents containing ANY of the selected terms")
+            selected_terms = st.multiselect(
+                "Select terms (at least one must be present):", 
+                options=all_unique_terms,
+                key="boolean_or"
+            )
+            
+            if selected_terms:
+                # OR operation
+                results = []
+                for rec in records:
+                    rec_terms = set(rec['Stemming'])
+                    if any(term in rec_terms for term in selected_terms):
+                        matching = [t for t in selected_terms if t in rec_terms]
+                        results.append({
+                            'DocID': rec['DocID'],
+                            'Text Preview': rec['Teks Mentah'][:100] + '...',
+                            'Matching Terms': ', '.join(matching)
+                        })
+                
+                st.markdown(f"**Query:** {' OR '.join([f'**{t}**' for t in selected_terms])}")
+                
+                if results:
+                    st.success(f"✅ Found {len(results)} documents")
+                    df_results = pd.DataFrame(results)
+                    st.dataframe(df_results, use_container_width=True)
+                else:
+                    st.warning("❌ No documents found matching any term")
+    
+    # ========== VSM SEARCH ==========
+    elif sub_menu == "VSM Search":
+        st.subheader("🎯 Vector Space Model Search (TF-IDF + Cosine Similarity)")
+        st.markdown("Search using TF-IDF weighting and Cosine Similarity")
+        
+        # Query input
+        query_text = st.text_area(
+            "Enter your query:",
+            placeholder="e.g., manajemen energi sistem",
+            height=80
+        )
+        
+        search_threshold = st.slider(
+            "Similarity Threshold (%)",
+            min_value=0,
+            max_value=100,
+            value=20,
+            step=5
+        )
+        
+        if query_text:
+            # Process query (same preprocessing as documents)
+            query_folded = re.sub(r'[^a-z\s]', ' ', query_text.lower())
+            query_folded = re.sub(r'\s+', ' ', query_folded).strip()
+            query_tokens = [t for t in query_folded.split() if len(t) >= 3]
+            query_no_stop = [t for t in query_tokens if t not in stopwords]
+            
+            query_stemmed = []
+            for t in query_no_stop:
+                stem = stemmer.stem(t)
+                if stem not in stopwords and len(stem) >= 3:
+                    query_stemmed.append(stem)
+            
+            if query_stemmed:
+                # Build query TF-IDF vector
+                query_tf = {}
+                for term in all_terms:
+                    count = query_stemmed.count(term)
+                    query_tf[term] = count / len(query_stemmed) if query_stemmed else 0
+                
+                query_tfidf = {term: query_tf.get(term, 0) * idf_dict[term] for term in all_terms}
+                
+                # Calculate cosine similarity with all documents
+                similarities = []
+                for i, rec in enumerate(records):
+                    doc_tfidf = tfidf_matrix[i]
+                    similarity = cosine_similarity(query_tfidf, doc_tfidf, all_terms)
+                    similarity_percent = similarity * 100
                     
-                    if similarity > 0:
+                    if similarity_percent >= search_threshold:
                         similarities.append({
                             'DocID': rec['DocID'],
-                            'Similarity': f"{similarity:.3f}",
-                            'Preview': rec['Teks Mentah'][:80] + '...'
+                            'Text Preview': rec['Teks Mentah'][:100] + '...',
+                            'Similarity (%)': f"{similarity_percent:.2f}%",
+                            'Similarity Score': similarity_percent
                         })
-            
-            if similarities:
-                df_sim = pd.DataFrame(similarities).sort_values('Similarity', ascending=False)
-                st.dataframe(df_sim, use_container_width=True)
-                st.success(f"✓ Found {len(df_sim)} relevant documents")
+                
+                # Sort by similarity
+                similarities = sorted(similarities, key=lambda x: x['Similarity Score'], reverse=True)
+                
+                st.markdown(f"**Query Terms:** {', '.join([f'`{t}`' for t in query_stemmed])}")
+                
+                if similarities:
+                    st.success(f"✅ Found {len(similarities)} documents")
+                    
+                    # Display results with styling
+                    df_results = pd.DataFrame(similarities)
+                    
+                    # Create styled dataframe
+                    styled_results = df_results.style.background_gradient(
+                        subset=['Similarity Score'],
+                        cmap='RdYlGn',
+                        vmin=0,
+                        vmax=100
+                    ).format({
+                        'Similarity Score': '{:.2f}'
+                    })
+                    
+                    st.dataframe(styled_results, use_container_width=True, hide_index=True)
+                    
+                    # Similarity matrix visualization
+                    st.markdown("---")
+                    st.subheader("📊 Similarity Matrix")
+                    
+                    top_n = min(10, len(similarities))
+                    matrix_data = []
+                    
+                    for item in similarities[:top_n]:
+                        matrix_data.append({
+                            'Document': item['DocID'],
+                            'Similarity %': float(item['Similarity (%)'].rstrip('%'))
+                        })
+                    
+                    if matrix_data:
+                        df_matrix = pd.DataFrame(matrix_data)
+                        
+                        # Create bar chart
+                        st.bar_chart(df_matrix.set_index('Document')['Similarity %'])
+                else:
+                    st.warning(f"❌ No documents found with similarity >= {search_threshold}%")
             else:
-                st.warning("No relevant documents found")
-        else:
-            st.info("Query terlalu umum (stopwords removed)")
+                st.info("⚠️ Query contains only stopwords. Please try different terms.")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: gray; font-size: 12px;'>
-    Information Retrieval System | Manajemen Energi Dataset | Built with Streamlit
+    Information Retrieval System | Manajemen Energi Dataset | TF-IDF + Cosine Similarity | Built with Streamlit
 </div>
 """, unsafe_allow_html=True)
