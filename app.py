@@ -5,6 +5,7 @@ import re
 import math
 from collections import defaultdict
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
+from tfidf_vsm import TFIDFCalculator, VSMCalculator
 
 st.set_page_config(page_title="Information Retrieval - Manajemen Energi", layout="wide")
 
@@ -97,42 +98,19 @@ def load_data():
     return records, sentences, stemmer, stopwords
 
 def calculate_tfidf(records):
-    """Calculate TF-IDF matrix"""
-    # Collect all unique terms
-    all_terms = set()
-    for rec in records:
-        all_terms.update(rec['Stemming'])
-    all_terms = sorted(list(all_terms))
+    """Calculate TF-IDF matrix using the new TFIDFCalculator"""
+    tfidf_calc = TFIDFCalculator(records)
+    tfidf_calc.build_inverted_index()
+    tfidf_calc.calculate_idf()
+    tfidf_calc.calculate_tf_idf()
     
-    # Calculate IDF
-    idf = {}
-    num_docs = len(records)
-    for term in all_terms:
-        doc_count = sum(1 for rec in records if term in rec['Stemming'])
-        idf[term] = math.log(num_docs / max(1, doc_count)) if doc_count > 0 else 0
-    
-    # Calculate TF-IDF for each document
+    # Convert to format compatible with existing code
     tfidf_matrix = []
     for rec in records:
-        tf = {}
-        for term in all_terms:
-            count = rec['Stemming'].count(term)
-            tf[term] = count / len(rec['Stemming']) if rec['Stemming'] else 0
-        
-        tfidf_vec = {term: tf.get(term, 0) * idf[term] for term in all_terms}
-        tfidf_matrix.append(tfidf_vec)
+        doc_id = rec['DocID']
+        tfidf_matrix.append(tfidf_calc.tf_idf_doc_scores.get(doc_id, {}))
     
-    return tfidf_matrix, idf, all_terms
-
-def cosine_similarity(vec1, vec2, all_terms):
-    """Calculate cosine similarity between two vectors"""
-    dot_product = sum(vec1.get(term, 0) * vec2.get(term, 0) for term in all_terms)
-    mag1 = math.sqrt(sum(v**2 for v in vec1.values()))
-    mag2 = math.sqrt(sum(v**2 for v in vec2.values()))
-    
-    if mag1 == 0 or mag2 == 0:
-        return 0
-    return dot_product / (mag1 * mag2)
+    return tfidf_matrix, tfidf_calc.idf_scores, tfidf_calc.all_terms, tfidf_calc
 
 def style_dataframe_gradient(df, columns=None):
     """Apply background gradient to dataframe"""
@@ -160,7 +138,7 @@ else:
 # Load data
 with st.spinner("Loading data..."):
     records, sentences, stemmer, stopwords = load_data()
-    tfidf_matrix, idf_dict, all_terms = calculate_tfidf(records)
+    tfidf_matrix, idf_dict, all_terms, tfidf_calc = calculate_tfidf(records)
 
 # Top Section: Search & Filters
 st.title("📊 Information Retrieval System")
@@ -472,95 +450,100 @@ else:
         )
         
         search_threshold = st.slider(
-            "Similarity Threshold (%)",
-            min_value=0,
-            max_value=100,
-            value=20,
-            step=5
+            "Similarity Threshold (0-1)",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.1,
+            step=0.05
         )
         
         if query_text:
-            # Process query (same preprocessing as documents)
-            query_folded = re.sub(r'[^a-z\s]', ' ', query_text.lower())
-            query_folded = re.sub(r'\s+', ' ', query_folded).strip()
-            query_tokens = [t for t in query_folded.split() if len(t) >= 3]
-            query_no_stop = [t for t in query_tokens if t not in stopwords]
+            # Define preprocessing function for query
+            def preprocessing_query(doc_id, raw_text):
+                def case_folding(text):
+                    text = text.lower()
+                    text = re.sub(r'\(.*?\)', ' ', text)
+                    text = re.sub(r'[^a-z\s]', ' ', text)
+                    text = re.sub(r'\s+', ' ', text).strip()
+                    return text
+
+                def tokenisasi(text):
+                    return [t for t in text.split() if len(t) >= 3]
+
+                def hapus_stopword(tokens):
+                    return [t for t in tokens if t not in stopwords]
+
+                def stemming(tokens):
+                    hasil = []
+                    for t in tokens:
+                        stem = stemmer.stem(t)
+                        if stem not in stopwords and len(stem) >= 3:
+                            hasil.append(stem)
+                    return hasil
+
+                folded = case_folding(raw_text)
+                tokens = tokenisasi(folded)
+                no_stop = hapus_stopword(tokens)
+                stemmed = stemming(no_stop)
+                return {
+                    'DocID': doc_id,
+                    'Teks Mentah': raw_text.strip(),
+                    'Case Folding': folded,
+                    'Tokenisasi': tokens,
+                    'Stopword Removal': no_stop,
+                    'Stemming': stemmed,
+                }
             
-            query_stemmed = []
-            for t in query_no_stop:
-                stem = stemmer.stem(t)
-                if stem not in stopwords and len(stem) >= 3:
-                    query_stemmed.append(stem)
+            # Gunakan VSMCalculator
+            vsm_calc = VSMCalculator(tfidf_calc)
+            results, query_terms = vsm_calc.get_detailed_results(
+                query_text, 
+                preprocessing_query, 
+                records,
+                threshold=search_threshold
+            )
             
-            if query_stemmed:
-                # Build query TF-IDF vector
-                query_tf = {}
-                for term in all_terms:
-                    count = query_stemmed.count(term)
-                    query_tf[term] = count / len(query_stemmed) if query_stemmed else 0
+            st.markdown(f"**Query Terms:** {', '.join([f'`{t}`' for t in query_terms])}")
+            
+            if results:
+                st.success(f"✅ Found {len(results)} documents")
                 
-                query_tfidf = {term: query_tf.get(term, 0) * idf_dict[term] for term in all_terms}
-                
-                # Calculate cosine similarity with all documents
-                similarities = []
-                for i, rec in enumerate(records):
-                    doc_tfidf = tfidf_matrix[i]
-                    similarity = cosine_similarity(query_tfidf, doc_tfidf, all_terms)
-                    similarity_percent = similarity * 100
-                    
-                    if similarity_percent >= search_threshold:
-                        similarities.append({
-                            'DocID': rec['DocID'],
-                            'Text Preview': rec['Teks Mentah'][:100] + '...',
-                            'Similarity (%)': f"{similarity_percent:.2f}%",
-                            'Similarity Score': similarity_percent
-                        })
-                
-                # Sort by similarity
-                similarities = sorted(similarities, key=lambda x: x['Similarity Score'], reverse=True)
-                
-                st.markdown(f"**Query Terms:** {', '.join([f'`{t}`' for t in query_stemmed])}")
-                
-                if similarities:
-                    st.success(f"✅ Found {len(similarities)} documents")
-                    
-                    # Display results with styling
-                    df_results = pd.DataFrame(similarities)
-                    
-                    # Create styled dataframe
-                    styled_results = df_results.style.background_gradient(
-                        subset=['Similarity Score'],
-                        cmap='RdYlGn',
-                        vmin=0,
-                        vmax=100
-                    ).format({
-                        'Similarity Score': '{:.2f}'
+                # Display results table
+                display_results = []
+                for r in results:
+                    display_results.append({
+                        'DocID': r['DocID'],
+                        'Similarity Score': f"{r['Similarity Score']:.4f}",
+                        'Similarity (%)': f"{r['Similarity Score']*100:.2f}%",
+                        'Text Preview': r['Text Preview']
                     })
-                    
-                    st.dataframe(styled_results, use_container_width=True, hide_index=True)
-                    
-                    # Similarity matrix visualization
-                    st.markdown("---")
-                    st.subheader("📊 Similarity Matrix")
-                    
-                    top_n = min(10, len(similarities))
-                    matrix_data = []
-                    
-                    for item in similarities[:top_n]:
-                        matrix_data.append({
-                            'Document': item['DocID'],
-                            'Similarity %': float(item['Similarity (%)'].rstrip('%'))
-                        })
-                    
-                    if matrix_data:
-                        df_matrix = pd.DataFrame(matrix_data)
-                        
-                        # Create bar chart
-                        st.bar_chart(df_matrix.set_index('Document')['Similarity %'])
-                else:
-                    st.warning(f"❌ No documents found with similarity >= {search_threshold}%")
+                
+                df_results = pd.DataFrame(display_results)
+                st.dataframe(df_results, use_container_width=True, hide_index=True)
+                
+                # Export detailed results
+                with st.expander("📊 Detailed Results"):
+                    for i, r in enumerate(results[:5], 1):
+                        st.markdown(f"**{i}. {r['DocID']} - Similarity: {r['Similarity Score']:.4f}**")
+                        st.text(r['Full Text'])
+                        st.divider()
+                
+                # Visualization
+                st.markdown("---")
+                st.subheader("📈 Similarity Scores Chart")
+                
+                chart_data = []
+                for r in results[:10]:
+                    chart_data.append({
+                        'Document': r['DocID'],
+                        'Score': r['Similarity Score'] * 100
+                    })
+                
+                df_chart = pd.DataFrame(chart_data)
+                if not df_chart.empty:
+                    st.bar_chart(df_chart.set_index('Document')['Score'])
             else:
-                st.info("⚠️ Query contains only stopwords. Please try different terms.")
+                st.warning(f"❌ No documents found with similarity >= {search_threshold:.2f}")
 
 # Footer
 st.markdown("---")
