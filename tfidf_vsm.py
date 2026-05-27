@@ -3,6 +3,7 @@ Modul terpisah untuk perhitungan TF-IDF dan VSM
 Struktur EXACT seperti Colab - tidak ada perubahan logic
 """
 import math
+import re
 from collections import defaultdict
 
 
@@ -80,7 +81,7 @@ def calculate_cosine_similarity(query_vector, document_vector):
     return dot_product / (magnitude_query * magnitude_document)
 
 
-def query_vsm(query_text, tf_idf_doc_scores, idf_scores, records, preprocessing_func):
+def query_vsm(query_text, tf_idf_doc_scores, idf_scores, records, stemmer, stopwords):
     """
     Mencari dokumen berdasarkan kueri menggunakan VSM dan kesamaan kosinus.
     EXACT seperti Colab.
@@ -90,14 +91,39 @@ def query_vsm(query_text, tf_idf_doc_scores, idf_scores, records, preprocessing_
         tf_idf_doc_scores: {doc_id: {term: score}} dari calculate_tf_idf
         idf_scores: {term: idf} dari calculate_tf_idf
         records: List of records
-        preprocessing_func: Function untuk preprocessing query
+        stemmer: PySastrawi stemmer instance
+        stopwords: Set of stopwords
         
     Returns:
         ranked_documents: [(doc_id, similarity_score), ...] sorted by score DESC
     """
-    # 1. Preprocessing kueri
-    processed_query = preprocessing_func('Query', query_text)
-    query_stemmed_terms = processed_query['Stemming']
+    # 1. Preprocessing kueri (inline, sama seperti Colab)
+    def case_folding(text):
+        text = text.lower()
+        text = re.sub(r'\(.*?\)', ' ', text)
+        text = re.sub(r'[^a-z\s]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+
+    def tokenisasi(text):
+        return [t for t in text.split() if len(t) >= 3]
+
+    def hapus_stopword(tokens):
+        return [t for t in tokens if t not in stopwords]
+
+    def stemming(tokens):
+        hasil = []
+        for t in tokens:
+            stem = stemmer.stem(t)
+            if stem not in stopwords and len(stem) >= 3:
+                hasil.append(stem)
+        return hasil
+
+    # Preprocessing query
+    folded = case_folding(query_text)
+    tokens = tokenisasi(folded)
+    no_stop = hapus_stopword(tokens)
+    query_stemmed_terms = stemming(no_stop)
 
     if not query_stemmed_terms:
         return []
@@ -209,59 +235,66 @@ class VSMCalculator:
     Memudahkan penggunaan di app.py
     """
     
-    def __init__(self, tfidf_calculator):
+    def __init__(self, tfidf_calculator, stemmer, stopwords):
         self.tfidf_calculator = tfidf_calculator
         self.records = tfidf_calculator.records
         self.tf_idf_doc_scores = tfidf_calculator.get_tf_idf_scores()
         self.idf_scores = tfidf_calculator.get_idf_scores()
+        self.stemmer = stemmer
+        self.stopwords = stopwords
     
     def calculate_cosine_similarity(self, query_vector, document_vector):
         """Wrapper untuk calculate_cosine_similarity function"""
         return calculate_cosine_similarity(query_vector, document_vector)
     
-    def process_query(self, query_text, preprocessing_func):
-        """Process query into TF-IDF vector"""
-        processed_query = preprocessing_func('Query', query_text)
-        query_stemmed_terms = processed_query['Stemming']
-        
-        if not query_stemmed_terms:
-            return {}, []
-        
-        # Calculate TF
-        query_tf = defaultdict(int)
-        for term in query_stemmed_terms:
-            query_tf[term] += 1
-        
-        # Calculate TF-IDF
-        query_tf_idf = {}
-        if len(query_stemmed_terms) > 0:
-            for term in set(query_stemmed_terms):
-                tf = query_tf[term] / len(query_stemmed_terms)
-                idf = self.idf_scores.get(term, 0)
-                query_tf_idf[term] = tf * idf
-        
-        return query_tf_idf, query_stemmed_terms
-    
-    def search(self, query_text, preprocessing_func, threshold=0):
-        """Search documents based on query"""
+    def search(self, query_text, threshold=0):
+        """Search documents based on query - EXACT seperti Colab"""
         ranked_docs = query_vsm(query_text, self.tf_idf_doc_scores, self.idf_scores, 
-                               self.records, preprocessing_func)
+                               self.records, self.stemmer, self.stopwords)
         
         # Filter by threshold
         filtered_docs = [(doc_id, score) for doc_id, score in ranked_docs if score >= threshold]
         
-        # Extract query terms for return
-        processed_query = preprocessing_func('Query', query_text)
-        query_terms = processed_query['Stemming']
-        
-        return filtered_docs, query_terms
+        return filtered_docs
     
-    def get_detailed_results(self, query_text, preprocessing_func, records, threshold=0):
+    def get_detailed_results(self, query_text, records, threshold=0):
         """Get detailed search results"""
-        ranked_docs, query_terms = self.search(query_text, preprocessing_func, threshold)
+        # Search menggunakan query_vsm langsung
+        ranked_docs = query_vsm(query_text, self.tf_idf_doc_scores, self.idf_scores, 
+                               self.records, self.stemmer, self.stopwords)
+        
+        # Filter by threshold
+        filtered_docs = [(doc_id, score) for doc_id, score in ranked_docs if score >= threshold]
+        
+        # Extract query terms
+        def case_folding(text):
+            text = text.lower()
+            text = re.sub(r'\(.*?\)', ' ', text)
+            text = re.sub(r'[^a-z\s]', ' ', text)
+            text = re.sub(r'\s+', ' ', text).strip()
+            return text
+
+        def tokenisasi(text):
+            return [t for t in text.split() if len(t) >= 3]
+
+        def hapus_stopword(tokens):
+            return [t for t in tokens if t not in self.stopwords]
+
+        def stemming(tokens):
+            hasil = []
+            for t in tokens:
+                stem = self.stemmer.stem(t)
+                if stem not in self.stopwords and len(stem) >= 3:
+                    hasil.append(stem)
+            return hasil
+        
+        folded = case_folding(query_text)
+        tokens = tokenisasi(folded)
+        no_stop = hapus_stopword(tokens)
+        query_terms = stemming(no_stop)
         
         results = []
-        for doc_id, score in ranked_docs:
+        for doc_id, score in filtered_docs:
             original_text = next(
                 (rec['Teks Mentah'] for rec in records if rec['DocID'] == doc_id),
                 'N/A'
@@ -275,4 +308,5 @@ class VSMCalculator:
             })
         
         return results, query_terms
+
 

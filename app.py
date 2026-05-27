@@ -458,47 +458,10 @@ else:
         )
         
         if query_text:
-            # Define preprocessing function for query
-            def preprocessing_query(doc_id, raw_text):
-                def case_folding(text):
-                    text = text.lower()
-                    text = re.sub(r'\(.*?\)', ' ', text)
-                    text = re.sub(r'[^a-z\s]', ' ', text)
-                    text = re.sub(r'\s+', ' ', text).strip()
-                    return text
-
-                def tokenisasi(text):
-                    return [t for t in text.split() if len(t) >= 3]
-
-                def hapus_stopword(tokens):
-                    return [t for t in tokens if t not in stopwords]
-
-                def stemming(tokens):
-                    hasil = []
-                    for t in tokens:
-                        stem = stemmer.stem(t)
-                        if stem not in stopwords and len(stem) >= 3:
-                            hasil.append(stem)
-                    return hasil
-
-                folded = case_folding(raw_text)
-                tokens = tokenisasi(folded)
-                no_stop = hapus_stopword(tokens)
-                stemmed = stemming(no_stop)
-                return {
-                    'DocID': doc_id,
-                    'Teks Mentah': raw_text.strip(),
-                    'Case Folding': folded,
-                    'Tokenisasi': tokens,
-                    'Stopword Removal': no_stop,
-                    'Stemming': stemmed,
-                }
-            
-            # Gunakan VSMCalculator
-            vsm_calc = VSMCalculator(tfidf_calc)
+            # Gunakan VSMCalculator dengan stemmer dan stopwords
+            vsm_calc = VSMCalculator(tfidf_calc, stemmer, stopwords)
             results, query_terms = vsm_calc.get_detailed_results(
                 query_text, 
-                preprocessing_query, 
                 records,
                 threshold=search_threshold
             )

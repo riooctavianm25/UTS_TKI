@@ -125,41 +125,6 @@ def test_vsm(records, stemmer, stopwords):
     print("TEST 2: VSM SEARCH")
     print("=" * 100)
     
-    # Setup preprocessing function
-    import re
-    
-    def preprocessing(doc_id, raw_text):
-        def case_folding(text):
-            text = text.lower()
-            text = re.sub(r'\(.*?\)', ' ', text)
-            text = re.sub(r'[^a-z\s]', ' ', text)
-            text = re.sub(r'\s+', ' ', text).strip()
-            return text
-
-        def tokenisasi(text):
-            return [t for t in text.split() if len(t) >= 3]
-
-        def hapus_stopword(tokens):
-            return [t for t in tokens if t not in stopwords]
-
-        def stemming(tokens):
-            hasil = []
-            for t in tokens:
-                stem = stemmer.stem(t)
-                if stem not in stopwords and len(stem) >= 3:
-                    hasil.append(stem)
-            return hasil
-
-        folded = case_folding(raw_text)
-        tokens = tokenisasi(folded)
-        no_stop = hapus_stopword(tokens)
-        stemmed = stemming(no_stop)
-        return {
-            'DocID': doc_id,
-            'Teks Mentah': raw_text.strip(),
-            'Stemming': stemmed,
-        }
-    
     # Build index
     inverted_index = build_inverted_index(records)
     tf_idf_doc_scores, idf_scores = calculate_tf_idf(records, inverted_index)
@@ -173,7 +138,7 @@ def test_vsm(records, stemmer, stopwords):
     
     for query in queries:
         print(f"\n[QUERY] {query}")
-        ranked_docs = query_vsm(query, tf_idf_doc_scores, idf_scores, records, preprocessing)
+        ranked_docs = query_vsm(query, tf_idf_doc_scores, idf_scores, records, stemmer, stopwords)
         
         if ranked_docs:
             print(f"Found {len(ranked_docs)} documents")
