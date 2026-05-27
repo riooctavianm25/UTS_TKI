@@ -1,24 +1,144 @@
 """
 Modul terpisah untuk perhitungan TF-IDF dan VSM
-Memastikan konsistensi dengan hasil Colab
+Struktur EXACT seperti Colab - tidak ada perubahan logic
 """
 import math
 from collections import defaultdict
 
 
+def build_inverted_index(records):
+    """
+    Membangun inverted index dari records
+    Format: {term: [doc_id1, doc_id2, ...]}
+    """
+    inverted_index = defaultdict(list)
+    
+    for rec in records:
+        doc_id = rec['DocID']
+        stemmed_terms = rec['Stemming']
+        
+        # Setiap term unique dalam dokumen hanya ditambahkan 1x
+        for term in set(stemmed_terms):
+            inverted_index[term].append(doc_id)
+    
+    return inverted_index
+
+
+def calculate_tf_idf(records, inverted_index):
+    """
+    Menghitung bobot TF-IDF untuk setiap term di setiap dokumen.
+    EXACT seperti Colab - tanpa perubahan.
+    
+    Args:
+        records: List of records dengan 'DocID' dan 'Stemming'
+        inverted_index: Dictionary mapping term ke list doc_ids
+        
+    Returns:
+        tf_idf_scores: {doc_id: {term: tf_idf_score}}
+        idf_scores: {term: idf_value}
+    """
+    tf_idf_scores = defaultdict(dict)
+    num_documents = len(records)
+
+    # Menghitung IDF (Inverse Document Frequency)
+    idf_scores = {}
+    for term, posting_list in inverted_index.items():
+        df = len(posting_list)  # Frekuensi Dokumen
+        idf_scores[term] = math.log10(num_documents / (df + 1))
+
+    # Menghitung TF-IDF
+    for record in records:
+        doc_id = record['DocID']
+        stemmed_terms = record['Stemming']
+        term_freq = defaultdict(int)
+        for term in stemmed_terms:
+            term_freq[term] += 1
+
+        for term in set(stemmed_terms):
+            tf = term_freq[term] / len(stemmed_terms)
+            idf = idf_scores.get(term, 0)
+            tf_idf_scores[doc_id][term] = tf * idf
+
+    return tf_idf_scores, idf_scores
+
+
+def calculate_cosine_similarity(query_vector, document_vector):
+    """
+    Menghitung kesamaan kosinus antara dua vektor.
+    EXACT seperti Colab.
+    """
+    dot_product = sum(
+        query_vector.get(term, 0) * document_vector.get(term, 0) 
+        for term in set(query_vector) | set(document_vector)
+    )
+
+    magnitude_query = math.sqrt(sum(q_val**2 for q_val in query_vector.values()))
+    magnitude_document = math.sqrt(sum(d_val**2 for d_val in document_vector.values()))
+
+    if magnitude_query == 0 or magnitude_document == 0:
+        return 0
+    return dot_product / (magnitude_query * magnitude_document)
+
+
+def query_vsm(query_text, tf_idf_doc_scores, idf_scores, records, preprocessing_func):
+    """
+    Mencari dokumen berdasarkan kueri menggunakan VSM dan kesamaan kosinus.
+    EXACT seperti Colab.
+    
+    Args:
+        query_text: String query
+        tf_idf_doc_scores: {doc_id: {term: score}} dari calculate_tf_idf
+        idf_scores: {term: idf} dari calculate_tf_idf
+        records: List of records
+        preprocessing_func: Function untuk preprocessing query
+        
+    Returns:
+        ranked_documents: [(doc_id, similarity_score), ...] sorted by score DESC
+    """
+    # 1. Preprocessing kueri
+    processed_query = preprocessing_func('Query', query_text)
+    query_stemmed_terms = processed_query['Stemming']
+
+    if not query_stemmed_terms:
+        return []
+
+    # 2. Menghitung TF untuk kueri
+    query_tf = defaultdict(int)
+    for term in query_stemmed_terms:
+        query_tf[term] += 1
+
+    # 3. Menghitung TF-IDF untuk kueri
+    query_tf_idf = {}
+    if len(query_stemmed_terms) > 0:
+        for term in set(query_stemmed_terms):
+            tf = query_tf[term] / len(query_stemmed_terms)
+            idf = idf_scores.get(term, 0)
+            query_tf_idf[term] = tf * idf
+
+    # 4. Menghitung kesamaan kosinus antara kueri dan setiap dokumen
+    similarities = {}
+    for doc_id, doc_tf_idf_vector in tf_idf_doc_scores.items():
+        similarity = calculate_cosine_similarity(query_tf_idf, doc_tf_idf_vector)
+        if similarity > 0:
+            similarities[doc_id] = similarity
+
+    # 5. Mengurutkan dokumen berdasarkan kesamaan
+    ranked_documents = sorted(similarities.items(), key=lambda item: item[1], reverse=True)
+
+    return ranked_documents
+
+
+# ============================================================================
+# CLASS-BASED INTERFACE (untuk backward compatibility dengan app.py)
+# ============================================================================
+
 class TFIDFCalculator:
     """
-    Kelas untuk menghitung TF-IDF dengan formula yang sama seperti Colab
-    Menggunakan math.log10 untuk IDF (base-10 logarithm)
+    Wrapper class untuk calculate_tf_idf function
+    Memudahkan penggunaan di app.py
     """
     
     def __init__(self, records):
-        """
-        Initialize TFIDF Calculator dengan records dokumen
-        
-        Args:
-            records: List of records dengan field 'Stemming' berisi list term
-        """
         self.records = records
         self.num_documents = len(records)
         self.inverted_index = None
@@ -27,53 +147,23 @@ class TFIDFCalculator:
         self.all_terms = None
     
     def build_inverted_index(self):
-        """
-        Membangun inverted index dari dokumen
-        Memetakan setiap term ke list dokumen yang mengandungnya
-        """
-        self.inverted_index = defaultdict(list)
-        
-        for rec in self.records:
-            doc_id = rec['DocID']
-            stemmed_terms = rec['Stemming']
-            
-            for term in set(stemmed_terms):
-                self.inverted_index[term].append(doc_id)
-        
-        # Simpan semua term yang unik
+        self.inverted_index = build_inverted_index(self.records)
         self.all_terms = sorted(list(self.inverted_index.keys()))
-        
         return self.inverted_index
     
     def calculate_idf(self):
-        """
-        Menghitung IDF (Inverse Document Frequency) untuk semua term
-        Formula: IDF = log10(N / (df + 1))
-        dimana N = total dokumen, df = document frequency (jumlah dokumen yang mengandung term)
-        """
         if self.inverted_index is None:
             self.build_inverted_index()
         
         self.idf_scores = {}
-        
         for term, posting_list in self.inverted_index.items():
-            df = len(posting_list)  # Document Frequency
-            # Formula: log10(num_docs / (df + 1)) - sama seperti Colab
+            df = len(posting_list)
             self.idf_scores[term] = math.log10(self.num_documents / (df + 1))
         
         return self.idf_scores
     
     def calculate_tf_for_document(self, stemmed_terms):
-        """
-        Menghitung Term Frequency (TF) untuk dokumen
-        Formula: TF = frekuensi term / total terms dalam dokumen
-        
-        Args:
-            stemmed_terms: List of stemmed terms dalam dokumen
-            
-        Returns:
-            Dictionary dengan key=term, value=tf
-        """
+        """Calculate TF for a document"""
         tf = {}
         total_terms = len(stemmed_terms)
         
@@ -90,50 +180,24 @@ class TFIDFCalculator:
         return tf
     
     def calculate_tf_idf(self):
-        """
-        Menghitung TF-IDF score untuk semua dokumen
-        Formula: TF-IDF = TF * IDF
+        """Calculate TF-IDF for all documents"""
+        if self.inverted_index is None:
+            self.build_inverted_index()
         
-        Returns:
-            Dictionary dengan struktur {doc_id: {term: tf_idf_score}}
-        """
-        if self.idf_scores is None:
-            self.calculate_idf()
-        
-        self.tf_idf_doc_scores = {}
-        
-        for rec in self.records:
-            doc_id = rec['DocID']
-            stemmed_terms = rec['Stemming']
-            
-            # Hitung TF untuk dokumen ini
-            tf = self.calculate_tf_for_document(stemmed_terms)
-            
-            # Hitung TF-IDF untuk setiap term
-            tf_idf_scores = {}
-            for term in set(stemmed_terms):
-                tf_value = tf.get(term, 0)
-                idf_value = self.idf_scores.get(term, 0)
-                tf_idf_scores[term] = tf_value * idf_value
-            
-            self.tf_idf_doc_scores[doc_id] = tf_idf_scores
-        
+        self.tf_idf_doc_scores, self.idf_scores = calculate_tf_idf(self.records, self.inverted_index)
         return self.tf_idf_doc_scores
     
     def get_all_terms(self):
-        """Mendapatkan list semua term yang unik"""
         if self.all_terms is None:
             self.build_inverted_index()
         return self.all_terms
     
     def get_idf_scores(self):
-        """Mendapatkan IDF scores untuk semua term"""
         if self.idf_scores is None:
             self.calculate_idf()
         return self.idf_scores
     
     def get_tf_idf_scores(self):
-        """Mendapatkan TF-IDF scores untuk semua dokumen"""
         if self.tf_idf_doc_scores is None:
             self.calculate_tf_idf()
         return self.tf_idf_doc_scores
@@ -141,132 +205,63 @@ class TFIDFCalculator:
 
 class VSMCalculator:
     """
-    Kelas untuk melakukan VSM (Vector Space Model) search
-    Menggunakan TF-IDF dan Cosine Similarity untuk ranking dokumen
+    Wrapper class untuk query_vsm function
+    Memudahkan penggunaan di app.py
     """
     
     def __init__(self, tfidf_calculator):
-        """
-        Initialize VSM Calculator
-        
-        Args:
-            tfidf_calculator: Instance dari TFIDFCalculator yang sudah dihitung
-        """
         self.tfidf_calculator = tfidf_calculator
         self.records = tfidf_calculator.records
         self.tf_idf_doc_scores = tfidf_calculator.get_tf_idf_scores()
         self.idf_scores = tfidf_calculator.get_idf_scores()
-        self.all_terms = tfidf_calculator.get_all_terms()
     
     def calculate_cosine_similarity(self, query_vector, document_vector):
-        """
-        Menghitung kesamaan kosinus antara dua vektor
-        Formula: cosine_similarity = (A·B) / (||A|| * ||B||)
-        
-        Args:
-            query_vector: Dictionary {term: score} untuk query
-            document_vector: Dictionary {term: score} untuk dokumen
-            
-        Returns:
-            Float antara 0-1 menyatakan similarity score
-        """
-        # Hitung dot product
-        dot_product = sum(
-            query_vector.get(term, 0) * document_vector.get(term, 0) 
-            for term in set(query_vector) | set(document_vector)
-        )
-        
-        # Hitung magnitude (norma) untuk query
-        magnitude_query = math.sqrt(sum(q_val**2 for q_val in query_vector.values()))
-        
-        # Hitung magnitude (norma) untuk dokumen
-        magnitude_document = math.sqrt(sum(d_val**2 for d_val in document_vector.values()))
-        
-        # Jika salah satu magnitude = 0, similarity = 0
-        if magnitude_query == 0 or magnitude_document == 0:
-            return 0
-        
-        return dot_product / (magnitude_query * magnitude_document)
+        """Wrapper untuk calculate_cosine_similarity function"""
+        return calculate_cosine_similarity(query_vector, document_vector)
     
     def process_query(self, query_text, preprocessing_func):
-        """
-        Memproses query text menjadi vektor TF-IDF
-        
-        Args:
-            query_text: String query dari user
-            preprocessing_func: Function untuk preprocessing query
-            
-        Returns:
-            Dictionary {term: tf_idf_score} untuk query
-        """
-        # Preprocessing query
+        """Process query into TF-IDF vector"""
         processed_query = preprocessing_func('Query', query_text)
         query_stemmed_terms = processed_query['Stemming']
         
         if not query_stemmed_terms:
             return {}, []
         
-        # Hitung TF untuk query
-        query_tf = self.tfidf_calculator.calculate_tf_for_document(query_stemmed_terms)
+        # Calculate TF
+        query_tf = defaultdict(int)
+        for term in query_stemmed_terms:
+            query_tf[term] += 1
         
-        # Hitung TF-IDF untuk query
+        # Calculate TF-IDF
         query_tf_idf = {}
-        for term in set(query_stemmed_terms):
-            tf = query_tf.get(term, 0)
-            idf = self.idf_scores.get(term, 0)
-            query_tf_idf[term] = tf * idf
+        if len(query_stemmed_terms) > 0:
+            for term in set(query_stemmed_terms):
+                tf = query_tf[term] / len(query_stemmed_terms)
+                idf = self.idf_scores.get(term, 0)
+                query_tf_idf[term] = tf * idf
         
         return query_tf_idf, query_stemmed_terms
     
     def search(self, query_text, preprocessing_func, threshold=0):
-        """
-        Mencari dokumen berdasarkan kueri menggunakan VSM
+        """Search documents based on query"""
+        ranked_docs = query_vsm(query_text, self.tf_idf_doc_scores, self.idf_scores, 
+                               self.records, preprocessing_func)
         
-        Args:
-            query_text: String query dari user
-            preprocessing_func: Function untuk preprocessing
-            threshold: Minimum similarity score (0-1) untuk hasil
-            
-        Returns:
-            List of tuples [(doc_id, similarity_score), ...] diurutkan descending
-        """
-        query_tf_idf, query_stemmed_terms = self.process_query(query_text, preprocessing_func)
+        # Filter by threshold
+        filtered_docs = [(doc_id, score) for doc_id, score in ranked_docs if score >= threshold]
         
-        if not query_tf_idf:
-            return [], []
+        # Extract query terms for return
+        processed_query = preprocessing_func('Query', query_text)
+        query_terms = processed_query['Stemming']
         
-        # Hitung similarity antara query dan setiap dokumen
-        similarities = {}
-        
-        for doc_id, doc_tf_idf_vector in self.tf_idf_doc_scores.items():
-            similarity = self.calculate_cosine_similarity(query_tf_idf, doc_tf_idf_vector)
-            
-            if similarity >= threshold:
-                similarities[doc_id] = similarity
-        
-        # Sort dokumen berdasarkan similarity (descending)
-        ranked_documents = sorted(similarities.items(), key=lambda item: item[1], reverse=True)
-        
-        return ranked_documents, query_stemmed_terms
+        return filtered_docs, query_terms
     
     def get_detailed_results(self, query_text, preprocessing_func, records, threshold=0):
-        """
-        Mendapatkan hasil pencarian dengan detail dokumen
-        
-        Args:
-            query_text: String query
-            preprocessing_func: Function untuk preprocessing
-            records: List of document records
-            threshold: Minimum similarity score
-            
-        Returns:
-            List of dictionaries dengan {doc_id, score, text_preview}
-        """
+        """Get detailed search results"""
         ranked_docs, query_terms = self.search(query_text, preprocessing_func, threshold)
         
         results = []
         for doc_id, score in ranked_docs:
-            # Cari original text
             original_text = next(
                 (rec['Teks Mentah'] for rec in records if rec['DocID'] == doc_id),
                 'N/A'
@@ -280,3 +275,4 @@ class VSMCalculator:
             })
         
         return results, query_terms
+
