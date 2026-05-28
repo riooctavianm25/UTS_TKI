@@ -127,10 +127,10 @@ def style_dataframe_gradient(df, columns=None):
     return df.style.applymap(lambda x: gradient_color(x) if isinstance(x, (int, float)) else '')
 
 # Sidebar Navigation
-st.sidebar.title("📊 Navigation")
-main_menu = st.sidebar.radio("Main Menu", ["📄 Shelf Monitoring", "⚙️ Search Engine"])
+st.sidebar.title("Navigation")
+main_menu = st.sidebar.radio("Main Menu", ["Shelf Monitoring", "Search Engine"])
 
-if main_menu == "📄 Shelf Monitoring":
+if main_menu == "Shelf Monitoring":
     sub_menu = st.sidebar.radio("Sub-Menu", ["Preprocessing", "Inverted Index", "Forward Index"])
 else:
     sub_menu = st.sidebar.radio("Sub-Menu", ["Boolean Search", "VSM Search"])
@@ -141,7 +141,7 @@ with st.spinner("Loading data..."):
     tfidf_matrix, idf_dict, all_terms, tfidf_calc = calculate_tfidf(records)
 
 # Top Section: Search & Filters
-st.title("📊 Information Retrieval System")
+st.title("Information Retrieval System")
 st.markdown("### Manajemen Energi Dataset")
 
 # Search box and filters
@@ -163,10 +163,10 @@ unique_terms = len(all_terms)
 keyword_density = unique_terms / total_docs if total_docs > 0 else 0
 
 with kpi_col1:
-    st.metric("📈 Total Documents Processed", f"{total_docs}", "Shelf Items")
+    st.metric("Total Documents Processed", f"{total_docs}", "Shelf Items")
 
 with kpi_col2:
-    st.metric("📚 Keyword Index Density", f"{keyword_density:.2f}", "Terms per Doc")
+    st.metric("Keyword Index Density", f"{keyword_density:.2f}", "Terms per Doc")
 
 st.markdown("---")
 
@@ -175,7 +175,7 @@ st.markdown("---")
 # SHELF MONITORING SECTION
 # ============================================================================
 
-if main_menu == "📄 Shelf Monitoring":
+if main_menu == "Shelf Monitoring":
     
     # ========== PREPROCESSING ==========
     if sub_menu == "Preprocessing":
@@ -206,7 +206,7 @@ if main_menu == "📄 Shelf Monitoring":
         st.dataframe(styled_df, use_container_width=True, height=400)
         
         st.markdown("---")
-        st.subheader("📖 Detail View")
+        st.subheader("Detail View")
         
         doc_select = st.selectbox("Select Document:", 
                                   options=[rec['DocID'] for rec in records],
@@ -368,7 +368,7 @@ else:
     
     # ========== BOOLEAN SEARCH ==========
     if sub_menu == "Boolean Search":
-        st.subheader("🔎 Boolean Query Search")
+        st.subheader("Boolean Query Search")
         st.markdown("Search using AND/OR boolean operations")
         
         query_type = st.radio("Query Type:", 
@@ -401,11 +401,11 @@ else:
                 st.markdown(f"**Query:** {' AND '.join([f'**{t}**' for t in selected_terms])}")
                 
                 if results:
-                    st.success(f"✅ Found {len(results)} documents")
+                    st.success(f"Found {len(results)} documents")
                     df_results = pd.DataFrame(results)
                     st.dataframe(df_results, use_container_width=True)
                 else:
-                    st.warning("❌ No documents found matching all terms")
+                    st.warning("No documents found matching all terms")
         
         else:  # OR Query
             st.info("**OR Query:** Returns documents containing ANY of the selected terms")
@@ -431,15 +431,15 @@ else:
                 st.markdown(f"**Query:** {' OR '.join([f'**{t}**' for t in selected_terms])}")
                 
                 if results:
-                    st.success(f"✅ Found {len(results)} documents")
+                    st.success(f"Found {len(results)} documents")
                     df_results = pd.DataFrame(results)
                     st.dataframe(df_results, use_container_width=True)
                 else:
-                    st.warning("❌ No documents found matching any term")
+                    st.warning("No documents found matching any term")
     
     # ========== VSM SEARCH ==========
     elif sub_menu == "VSM Search":
-        st.subheader("🎯 Vector Space Model Search (TF-IDF + Cosine Similarity)")
+        st.subheader("Vector Space Model Search (TF-IDF + Cosine Similarity)")
         st.markdown("Search using TF-IDF weighting and Cosine Similarity")
         
         # Query input
@@ -465,11 +465,10 @@ else:
                 records,
                 threshold=search_threshold
             )
-            
             st.markdown(f"**Query Terms:** {', '.join([f'`{t}`' for t in query_terms])}")
             
             if results:
-                st.success(f"✅ Found {len(results)} documents")
+                st.success(f"Found {len(results)} documents")
                 
                 # Display results table
                 display_results = []
@@ -485,7 +484,7 @@ else:
                 st.dataframe(df_results, use_container_width=True, hide_index=True)
                 
                 # Export detailed results
-                with st.expander("📊 Detailed Results"):
+                with st.expander("Detailed Results"):
                     for i, r in enumerate(results[:5], 1):
                         st.markdown(f"**{i}. {r['DocID']} - Similarity: {r['Similarity Score']:.4f}**")
                         st.text(r['Full Text'])
@@ -493,7 +492,7 @@ else:
                 
                 # Visualization
                 st.markdown("---")
-                st.subheader("📈 Similarity Scores Chart")
+                st.subheader("Similarity Scores Chart")
                 
                 chart_data = []
                 for r in results[:10]:
@@ -506,7 +505,7 @@ else:
                 if not df_chart.empty:
                     st.bar_chart(df_chart.set_index('Document')['Score'])
             else:
-                st.warning(f"❌ No documents found with similarity >= {search_threshold:.2f}")
+                st.warning(f"No documents found with similarity >= {search_threshold:.2f}")
 
 # Footer
 st.markdown("---")
