@@ -56,7 +56,8 @@ def calculate_tf_idf(records, inverted_index):
             term_freq[term] += 1
 
         for term in set(stemmed_terms):
-            tf = term_freq[term] / len(stemmed_terms)
+            raw_tf = term_freq[term]
+            tf = 1 + math.log10(raw_tf)  # Log frequency weighting
             idf = idf_scores.get(term, 0)
             tf_idf_scores[doc_id][term] = tf * idf
 
@@ -189,11 +190,10 @@ class TFIDFCalculator:
         return self.idf_scores
     
     def calculate_tf_for_document(self, stemmed_terms):
-        """Calculate TF for a document"""
+        """Calculate TF for a document using log frequency weighting"""
         tf = {}
-        total_terms = len(stemmed_terms)
         
-        if total_terms == 0:
+        if len(stemmed_terms) == 0:
             return tf
         
         term_frequency = defaultdict(int)
@@ -201,7 +201,7 @@ class TFIDFCalculator:
             term_frequency[term] += 1
         
         for term, count in term_frequency.items():
-            tf[term] = count / total_terms
+            tf[term] = 1 + math.log10(count)  # Log frequency weighting
         
         return tf
     
