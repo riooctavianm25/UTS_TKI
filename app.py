@@ -245,7 +245,7 @@ if main_menu == "Shelf Monitoring":
     
     # ========== INVERTED INDEX ==========
     elif sub_menu == "Inverted Index":
-        st.subheader("🔍 Inverted Index Structure")
+        st.subheader("Inverted Index Structure")
         st.markdown("Map of keywords to documents containing them")
         
         # Build inverted index
@@ -299,7 +299,7 @@ if main_menu == "Shelf Monitoring":
     
     # ========== FORWARD INDEX ==========
     elif sub_menu == "Forward Index":
-        st.subheader("📑 Forward Index Structure")
+        st.subheader("Forward Index Structure")
         st.markdown("Map of documents to their terms with frequencies")
         
         fi_data = []
@@ -333,7 +333,7 @@ if main_menu == "Shelf Monitoring":
         st.dataframe(styled_fi, use_container_width=True, height=400)
         
         st.markdown("---")
-        st.subheader("📊 Detailed Term Frequency Analysis")
+        st.subheader("Detailed Term Frequency Analysis")
         
         doc_select = st.selectbox("Select Document:", 
                                   options=[rec['DocID'] for rec in records],
