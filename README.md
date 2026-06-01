@@ -1,7 +1,3 @@
-Berikut adalah perbaikan dan penyempurnaan untuk dokumen `README.md` Anda. Saya telah membersihkan karakter spasi yang tidak baku (non-breaking spaces) pada blok kode dan struktur folder yang sering menyebabkan *error* saat disalin. Selain itu, saya juga memformat ulang rumus matematika menggunakan format standar (LaTeX) agar tampil lebih profesional saat di-render.
-
----
-
 # Information Retrieval - Manajemen Energi
 
 Aplikasi Information Retrieval menggunakan **TF-IDF (Term Frequency-Inverse Document Frequency)** dan **VSM (Vector Space Model)** untuk pencarian dokumen berbasis *keyword* "Manajemen Energi" dari data jurnal.
