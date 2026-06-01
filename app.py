@@ -179,7 +179,7 @@ if main_menu == "Shelf Monitoring":
     
     # ========== PREPROCESSING ==========
     if sub_menu == "Preprocessing":
-        st.subheader("📋 Text Preprocessing Pipeline")
+        st.subheader("Text Preprocessing Pipeline")
         st.markdown("Visualization of text preprocessing stages from raw text to stemming")
         
         # Display table with conditional formatting
