@@ -235,8 +235,6 @@ Sistem membuat pemetaan dari setiap *term* menuju dokumen-dokumen yang memuatnya
 **TF (Term Frequency) - Log Weighting:**
 
 
-$$TF(t,d) = 1 + \log_{10}(\text{raw\_tf})$$
-
 
 *Dimana $\text{raw\_tf}$ adalah jumlah kemunculan term $t$ dalam dokumen $d$.*
 
@@ -344,72 +342,5 @@ Aplikasi menghasilkan dua representasi data utama untuk analisis lanjutan:
 
 * **File:** `IR_KeywordManajemenEnergi(TF-IDF Scores).csv`
 * **Kolom Utama:** DocID, Term, Nilai TF, Nilai IDF, dan Total Skor TF-IDF.
-
----
-
-## Testing & Debugging
-
-Gunakan modul *script* bawaan berikut untuk mendiagnosis logika maupun dataset:
-
-* `python test_tfidf_vsm_colab.py` : Verifikasi akurasi matematis TF-IDF dan kalkulasi VSM.
-* `python test_compare.py` : Komparasi *output* aktual versus ekspektasi teoretis.
-* `python debug_csv.py` : Melakukan *sanity check* pada pembacaan/penulisan file CSV.
-* `python debug_tfidf_vsm.py` : Melacak kelainan (*anomaly*) pada perhitungan bobot spesifik per kata.
-
----
-
-## Tips & Tricks
-
-### Optimasi Query Pencarian
-
-1. **Gunakan Kata Kunci Spesifik:** "sistem manajemen energi terbarukan" akan jauh lebih presisi dibandingkan sekadar "energi".
-2. **Abaikan Stopwords Secara Manual:** Walaupun sistem menghapusnya secara otomatis, fokuskan pengetikan Anda pada inti topik.
-3. **Kata Dasar:** Sistem Sastrawi akan mengonversi bentuk imbuhan (misal: "mengelola", "pengelolaan") menjadi kata dasarnya ("kelola"). Pemahaman ini membantu memprediksi kemunculan *term*.
-
-### Performance Optimization
-
-* Aplikasi memanfaatkan `@st.cache_data` pada Streamlit. Proses *preprocessing* dataset hanya terjadi di awal.
-* Jika Anda memperbarui file CSV, pastikan untuk menghapus (*clear*) *cache* Streamlit (lewat ikon menu di kanan atas antarmuka UI) agar data ter-muat ulang.
-
----
-
-## Troubleshooting
-
-### Error: `ModuleNotFoundError: No module named 'Sastrawi'`
-
-**Solusi:** Buka terminal/cmd dan jalankan `pip install Sastrawi`.
-
-### Error: `FileNotFoundError: [Errno 2] No such file or directory: 'TKI_Keyword_Manajemen Energi(Jurnal).csv'`
-
-**Solusi:**
-
-* Pastikan file data mentah berada di *root folder* yang sama dengan `app.py`.
-* Periksa kembali nama file (ingat bahwa penamaan file bersifat *case-sensitive* terutama pada sistem Linux/macOS).
-
-### Aplikasi Streamlit Gagal Terbuka (Port Tabrakan)
-
-**Solusi:** Paksa Streamlit menggunakan *port* lain yang kosong.
-
-```bash
-streamlit run app.py --server.port 8502
-
-```
-
-### Hasil Pencarian Selalu Kosong
-
-**Solusi:**
-
-* Bisa jadi *query* Anda murni hanya terdiri dari *stopwords* (contoh: "dan", "yang", "di").
-* Terjadi *over-stemming* sehingga kata dasar yang dihasilkan tidak *match* dengan dokumen. Coba kata kunci alternatif yang lebih universal.
-
----
-
-## Referensi Teori
-
-* **TF-IDF (Term Frequency - Inverse Document Frequency):** Algoritma pembobotan untuk mengevaluasi seberapa esensial sebuah kata (term) terhadap sebuah dokumen di dalam kumpulan korpus (dataset).
-* **VSM (Vector Space Model):** Model aljabar yang merepresentasikan dokumen dan *query* teks sebagai vektor dari berbagai indikator identitas (seperti bobot TF-IDF).
-* **Cosine Similarity:** Metrik jarak geometris di dalam ruang multidimensi vektor yang dinilai dari sudut ($\theta$) antara dua vektor. Rentang nilainya antara $0$ (sangat bertolak belakang/tidak berhubungan) hingga $1$ (identik secara proporsional).
-
-$$\cos(\theta) = \frac{\mathbf{A} \cdot \mathbf{B}}{\|\mathbf{A}\| \times \|\mathbf{B}\|}$$
 
 ---
