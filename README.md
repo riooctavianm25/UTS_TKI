@@ -2,24 +2,6 @@
 
 Aplikasi Information Retrieval menggunakan **TF-IDF (Term Frequency-Inverse Document Frequency)** dan **VSM (Vector Space Model)** untuk pencarian dokumen berbasis *keyword* "Manajemen Energi" dari data jurnal.
 
-## Daftar Isi
-
-1. [Deskripsi Project](https://www.google.com/search?q=%23deskripsi-project)
-2. [Fitur Utama](https://www.google.com/search?q=%23fitur-utama)
-3. [Struktur Project](https://www.google.com/search?q=%23struktur-project)
-4. [Requirements](https://www.google.com/search?q=%23requirements)
-5. [Instalasi](https://www.google.com/search?q=%23instalasi)
-6. [Cara Menggunakan](https://www.google.com/search?q=%23cara-menggunakan)
-7. [Alur Kerja (Pipeline)](https://www.google.com/search?q=%23alur-kerja-pipeline)
-8. [Penjelasan Teknis](https://www.google.com/search?q=%23penjelasan-teknis)
-9. [Output Data](https://www.google.com/search?q=%23output-data)
-10. [Testing & Debugging](https://www.google.com/search?q=%23testing--debugging)
-11. [Tips & Tricks](https://www.google.com/search?q=%23tips--tricks)
-12. [Troubleshooting](https://www.google.com/search?q=%23troubleshooting)
-13. [Referensi Teori](https://www.google.com/search?q=%23referensi-teori)
-
----
-
 ## Deskripsi Project
 
 Proyek ini adalah implementasi sistem **Information Retrieval** yang menggabungkan teknik-teknik NLP (Natural Language Processing) dan *machine learning* dasar untuk:
