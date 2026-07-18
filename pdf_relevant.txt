@@ -1,0 +1,142 @@
+--- page 1 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+Integrasi Multilingual Sentence -BERT dan Cross -Encoder Reranking  
+
+--- page 2 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+
+--- page 3 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+TF-IDF + Vector Space Model (VSM). Pendekatan ini bekerja berdasarkan kecocokan leksikal (exact 
+Kelemahan utama pendekatan ini adalah ketidakmampuannya menangkap kemiripan makna (semantic 
+reranking menggunakan Cross -Encoder untuk meningkatkan presisi hasil akhir.  
+
+--- page 4 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+menghasilkan embedding kalimat yang bisa langsung dibandingkan menggunakan cosine similarity tanpa 
+cosine similarity. Sangat cepat karena vektor dokumen bisa di -precompute , tapi sedikit kurang presisi 
+1.2.8  Retrieve -Then -Rerank Pipeline  
+menilai ulang (rerank) hanya k kandidat tersebut untuk menghasilkan ranking final yang lebih akurat. 
+IndexFlatIP (exact search dengan inner product), yang ekuivalen dengan cosine similarity setelah 
+1.2.10  Cosine Similarity  
+
+--- page 5 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+
+--- page 6 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+1. Mengupgrade sistem IR tradisional (TF -IDF + VSM) menjadi sistem IR modern berbasis dense 
+3. Mengintegrasikan Cross -Encoder (mMiniLM Multilingual) sebagai reranker untuk meningkatkan 
+presisi ranking pada top -k hasil retrieval.  
+● Sistem baseline: TF -IDF + VSM dari kode tfidf_vsm.py yang sudah ada  
+
+--- page 7 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+TF-IDF Baseline  Hasil stemming Sastrawi (dari pipeline 
+Cross -Encoder Reranker  Teks asli / lowercase saja tanpa stemming  Sama dengan input SBERT  
+semantic search:  
+
+--- page 8 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+energi bersih  Sulit (semantic)  Parafrase — 'energi bersih' vs 'energi 
+sistem industri  Sulit (semantic)  Berbeda kata tapi semakna dengan 
+3. Simpan dalam format CSV: query_id, doc_id, relevance_score  
+
+--- page 9 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+Sistem baru menggunakan pipeline dua tahap (retrieve -then-rerank) yang bekerja sebagai berikut:  
+Reranking  Pasangan (query, dok) × 
+Online (per query)  Final Ranking  Skor Cross -Encoder  Daftar dokumen terurut 
+
+--- page 10 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+● Index type: IndexFlatIP (Inner Product — ekuivalen cosine setelah L2 norm)  
+4.2.4  Modul Reranker (Cross -Encoder)  
+● Output: List of float scores (satu skor per pasangan)  
+SBERT+Reranking  
+● Input: ranking per query + ground truth relevance judgment  
+
+--- page 11 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+TF-IDF(t, d) = TF(t, d) × IDF(t)  
+5.1.4  Cosine Similarity (VSM)  
+
+--- page 12 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+Teknik Komputer & Informatika — UISI  |  Halaman 12 Setelah normalisasi, inner product (dot product) antara dua vektor menjadi ekuivalen dengan cosine 
+similarity, sehingga IndexFlatIP (inner product) di FAISS menghasilkan skor yang sama dengan cosine 
+5.2.3  Cosine Similarity (Dense Space)  
+score_bi(q, d) = emb(q) · emb(d)     [setelah normalisasi L2]  
+score_ce(q, d) = W · h_[CLS](concat[q, d]) + b  
+layer, b adalah bias. Skor ini yang dipakai sebagai dasar reranking final.  
+memperhitungkan urutan dokumen relevan dalam ranking.  
+
+--- page 13 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+
+--- page 14 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+dan cross -encoder reranker  pip install sentence -
+scikit -learn >=1.0.0  Metrik evaluasi IR (ndcg_score), TF -IDF 
+
+--- page 15 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+Cross -Encoder  ~117 MB  Reranking top -k 
+
+--- page 16 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+Sel 8 Cross -Encoder reranking per query  Dict {query_id: reranked_list}  
+
+--- page 17 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+2. Search FAISS: scores, indices = index.search(q_emb, k=20)  ← ambil top -20 
+3. scores berisi skor cosine similarity, indices berisi posisi dokumen di array  
+7.2.5  Cross -Encoder Reranking  
+1. Load reranker: from sentence_transformers import CrossEncoder; reranker = CrossEncoder('cross -
+3. Score: ce_scores = reranker.predict(pairs)  
+4. Urutkan ulang: reranked = sorted(zip(ce_scores, top_20_indices), reverse=True)  
+
+--- page 18 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+Teknik Komputer & Informatika — UISI  |  Halaman 18 Implementasi menggunakan fungsi manual atau sklearn.metrics.ndcg_score:  
+2. Untuk setiap query, konversi ranked list ke binary relevance list (urutan sesuai ranking)  
+3. Hitung AP per query menggunakan loop atas posisi ranking  
+5. Hitung NDCG: gunakan sklearn.metrics.ndcg_score(true_scores, pred_scores, k=10)  
+7. Ulangi untuk ketiga sistem: TF -IDF, SBERT -only, SBERT+Reranking  
+
+--- page 19 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+semua query pada top -10 Mengukur kualitas ranking 
+Cumulative Gain pada top -10 Mengukur kualitas ranking 
+0.00 – 0.30 Sistem buruk — hasil ranking tidak lebih baik dari random  
+0.51 – 0.70 Sistem baik — mayoritas dokumen relevan di posisi atas ranking  
+
+--- page 20 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+Aspek  Sistem Lama (TF -IDF) Sistem Baru (SBERT + Reranking)  
+Basis data vektor  Tidak ada — cosine similarity on -
+
+--- page 21 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+
+--- page 22 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+dokumen  Binary FAISS  
+score)  CSV 
+
+--- page 23 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+
+--- page 24 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+
+--- page 25 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+
+--- page 26 ---
+PRD — Sistem IR Dense Retrieval + Cross -Encoder Reranking  
+Reranking  Proses mengurutkan ulang daftar kandidat yang sudah ada menggunakan model 
+Retrieve -Then -Rerank  Pipeline dua tahap: tahap 1 retrieval cepat, tahap 2 reranking presisi  
+Semantic Search  Pencarian berdasarkan makna/semantik, bukan kecocokan kata eksak  
+TF-IDF Term Frequency -Inverse Document Frequency — metode pembobotan term 
+(VSM)  Model representasi dokumen sebagai titik dalam ruang vektor multidimensi  

@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,7 +6,8 @@ import re
 import math
 from collections import defaultdict
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
-from tfidf_vsm import TFIDFCalculator, VSMCalculator
+from tfidf_vsm import TFIDFCalculator, VSMCalculator, SemanticSearch
+from dense_retrieval import DenseRetrievalEngine
 
 st.set_page_config(page_title="Information Retrieval - Manajemen Energi", layout="wide")
 
@@ -34,13 +36,36 @@ def load_stopwords():
     }
 
 @st.cache_data
+def load_queries_file(path='queries.csv'):
+    if not os.path.exists(path):
+        return {}
+    try:
+        df = pd.read_csv(path, dtype=str)
+        cols = [c.lower() for c in df.columns]
+        if 'query_id' not in cols or 'query_text' not in cols:
+            return {}
+        queries = {}
+        for _, row in df.iterrows():
+            qid = str(row['query_id']).strip()
+            qtext = str(row['query_text']).strip()
+            if qid and qtext:
+                queries[qid] = qtext
+        return queries
+    except Exception:
+        return {}
+
+@st.cache_data
 def load_data():
     """Load and preprocess data"""
     stemmer = initialize_stemmer()
     stopwords = load_stopwords()
     
-    # Load sentences
-    df = pd.read_csv('TKI_Keyword_Manajemen Energi(Jurnal).csv', encoding='utf-8-sig')
+    # Prefer 50-document dataset if available
+    data_path = 'TKI_Keyword_Manajemen Energi(Jurnal)_50.csv'
+    if not os.path.exists(data_path):
+        data_path = 'TKI_Keyword_Manajemen Energi(Jurnal).csv'
+
+    df = pd.read_csv(data_path, encoding='utf-8-sig')
     sentences = []
     
     for index, row in df.iterrows():
@@ -91,11 +116,47 @@ def load_data():
         }
 
     records = []
-    for i, kalimat in enumerate(sentences, 1):
+    for i, kalimat in enumerate(sentences[:50], 1):
         record = preprocessing(f'Doc {i}', kalimat)
         records.append(record)
 
-    return records, sentences, stemmer, stopwords
+    return records, sentences[:50], stemmer, stopwords
+
+@st.cache_resource
+def initialize_semantic_search(records):
+    return SemanticSearch(records, use_rerank=False)
+
+
+@st.cache_resource
+def initialize_dense_engine(records):
+    """Eagerly load SBERT bi-encoder, encode documents and build FAISS index.
+
+    If any heavy dependency is missing this will show a warning but still
+    return a partially initialized engine object to avoid crashing the app.
+    """
+    engine = DenseRetrievalEngine(records)
+    try:
+        engine.load_bi_encoder()
+    except Exception as e:
+        st.warning(f"Could not load SBERT bi-encoder: {e}")
+        return engine
+
+    try:
+        engine.encode_documents()
+        engine.build_faiss_index()
+    except Exception as e:
+        st.warning(f"Error while encoding documents or building FAISS index: {e}")
+
+    try:
+        # Optional: attempt to load a cross-encoder reranker if available
+        engine.load_reranker()
+        st.info("Cross-Encoder loaded for optional reranking.")
+    except Exception:
+        # Non-fatal: continue without a reranker
+        pass
+
+    return engine
+
 
 def calculate_tfidf(records):
     """Calculate TF-IDF matrix using the new TFIDFCalculator"""
@@ -133,12 +194,15 @@ main_menu = st.sidebar.radio("Main Menu", ["Shelf Monitoring", "Search Engine"])
 if main_menu == "Shelf Monitoring":
     sub_menu = st.sidebar.radio("Sub-Menu", ["Preprocessing", "Inverted Index", "Forward Index"])
 else:
-    sub_menu = st.sidebar.radio("Sub-Menu", ["Boolean Search", "VSM Search"])
+    sub_menu = st.sidebar.radio("Sub-Menu", ["Boolean Search", "VSM Search", "Semantic Search", "Evaluation"])
 
 # Load data
 with st.spinner("Loading data..."):
     records, sentences, stemmer, stopwords = load_data()
     tfidf_matrix, idf_dict, all_terms, tfidf_calc = calculate_tfidf(records)
+    semantic_search = initialize_semantic_search(records)
+    # Eagerly initialize dense retrieval (SBERT + FAISS) at startup
+    dense_engine = initialize_dense_engine(records)
 
 # Top Section: Search & Filters
 st.title("Information Retrieval System")
@@ -506,6 +570,315 @@ else:
                     st.bar_chart(df_chart.set_index('Document')['Score'])
             else:
                 st.warning(f"No documents found with similarity >= {search_threshold:.2f}")
+
+    elif sub_menu == "Semantic Search":
+        st.subheader("Semantic Search (SBERT + FAISS)")
+        st.markdown("Search using dense document embeddings and approximate nearest neighbor retrieval.")
+
+        query_file_queries = load_queries_file('queries.csv')
+        query_text = ""
+
+        if query_file_queries:
+            manual_label = "-- Ketik manual --"
+            query_options = [manual_label] + [f"{qid}: {qtext}" for qid, qtext in sorted(query_file_queries.items(), key=lambda item: item[0])]
+            selected = st.selectbox("", query_options, index=0, label_visibility="collapsed")
+            if selected != manual_label:
+                query_text = selected.split(":", 1)[1].strip()
+            st.caption("Pilih preset dari dropdown lalu edit teks di bawah. Jika ingin manual, pilih -- Ketik manual --.")
+
+        query_text = st.text_area(
+            "Enter your query:",
+            value=query_text,
+            placeholder="Pilih preset di atas atau ketik query Anda di sini...",
+            height=80
+        )
+
+        top_k = st.slider(
+            "Top K results:",
+            min_value=1,
+            max_value=20,
+            value=10,
+            step=1
+        )
+
+        enable_rerank = st.checkbox("Enable Cross-Encoder Reranking (if available)", value=False)
+
+        if query_text:
+            with st.spinner("Running semantic search..."):
+                    # Use dense_engine (SBERT + FAISS) initialized at startup
+                    try:
+                        faiss_results = dense_engine.search(query_text, top_k=top_k)
+                    except Exception as e:
+                        st.error(f"Dense retrieval failed: {e}")
+                        faiss_results = []
+
+                    # Keep original FAISS scores for display
+                    original_scores = {r.doc_id: r.score for r in faiss_results}
+
+                    # Optionally rerank with Cross-Encoder if requested and available
+                    if enable_rerank:
+                        if getattr(dense_engine, 'reranker', None) is not None:
+                            try:
+                                results = dense_engine.rerank(query_text, faiss_results)
+                            except Exception as e:
+                                st.warning(f"Reranking failed: {e}")
+                                results = faiss_results
+                        else:
+                            st.warning("Cross-Encoder not available; showing FAISS results.")
+                            results = faiss_results
+                    else:
+                        results = faiss_results
+
+            if results:
+                st.success(f"Found {len(results)} documents")
+
+                def map_cosine_to_01(c):
+                    try:
+                        return (c + 1.0) / 2.0
+                    except Exception:
+                        return 0.0
+
+                def sigmoid(x):
+                    try:
+                        return 1.0 / (1.0 + math.exp(-x))
+                    except OverflowError:
+                        return 0.0 if x < 0 else 1.0
+
+                display_results = []
+                for r in results:
+                    doc_id = getattr(r, 'doc_id', getattr(r, 'DocID', None))
+                    text_preview = getattr(r, 'text_preview', getattr(r, 'Text Preview', ''))
+                    score_raw = getattr(r, 'score', getattr(r, 'Score', 0.0))
+                    # If this result was reranked, also show original FAISS cosine
+                    orig = original_scores.get(doc_id)
+                    if orig is not None:
+                        cosine = float(orig)
+                        pct = map_cosine_to_01(cosine) * 100.0
+                    else:
+                        cosine = float(score_raw)
+                        pct = map_cosine_to_01(cosine) * 100.0
+
+                    row = {
+                        'DocID': doc_id,
+                        'Cosine': f"{cosine:.4f}",
+                        'Similarity (%)': f"{pct:.2f}%",
+                        'Text Preview': text_preview,
+                    }
+                    # If reranked, add cross-encoder score column
+                    if enable_rerank and getattr(dense_engine, 'reranker', None) is not None:
+                        rerank_raw = float(score_raw)
+                        row['Rerank Score (raw)'] = f"{rerank_raw:.4f}"
+                        row['Rerank Score (sigmoid)'] = f"{sigmoid(rerank_raw):.4f}"
+
+                    display_results.append(row)
+
+                df_results = pd.DataFrame(display_results)
+                st.dataframe(df_results, use_container_width=True, hide_index=True)
+
+                with st.expander("Detailed Semantic Results"):
+                    for i, r in enumerate(results[:5], 1):
+                        # support both dict-like and DenseSearchResult objects
+                        doc_id = getattr(r, 'doc_id', r.get('DocID') if isinstance(r, dict) else None)
+                        rerank_score = getattr(r, 'score', r.get('Score') if isinstance(r, dict) else None)
+                        full_text = getattr(r, 'full_text', r.get('Full Text') if isinstance(r, dict) else '')
+
+                        # original FAISS cosine score (if available)
+                        orig_cosine = None
+                        try:
+                            orig_cosine = original_scores.get(doc_id) if 'original_scores' in locals() else None
+                        except Exception:
+                            orig_cosine = None
+
+                        parts = []
+                        if doc_id:
+                            parts.append(f"{doc_id}")
+                        if orig_cosine is not None:
+                            parts.append(f"Cosine: {float(orig_cosine):.4f}")
+                        if rerank_score is not None and enable_rerank:
+                            rerank_raw = float(rerank_score)
+                            rerank_sigmoid = sigmoid(rerank_raw)
+                            parts.append(
+                                f"Rerank: {rerank_raw:.4f} (sigmoid {rerank_sigmoid:.4f})"
+                            )
+
+                        st.markdown(f"**{i}. {' - '.join(parts)}**")
+                        st.text(full_text)
+                        st.divider()
+
+                st.markdown("---")
+                st.subheader("Semantic Scores Chart")
+
+                # Chart metric selection (follow PRD-style behavior)
+                rerank_available = enable_rerank and getattr(dense_engine, 'reranker', None) is not None
+                chart_options = ['Cosine (FAISS)']
+                if rerank_available:
+                    chart_options += ['Rerank (raw)', 'Rerank (sigmoid)']
+
+                chart_choice = st.selectbox("Chart metric", chart_options, index=0)
+
+                # PRD-style explanatory label when reranker present
+                if rerank_available:
+                    st.caption(
+                        "PRD: Cross-Encoder outputs raw logit scores (higher = more relevant). "
+                        "Use 'Rerank (sigmoid)' to view a 0-1 probability-like mapping."
+                    )
+
+                chart_data = []
+                for r in results[:10]:
+                    if isinstance(r, dict):
+                        doc_id = r.get('DocID')
+                        score_raw = r.get('Score')
+                    else:
+                        doc_id = getattr(r, 'doc_id', None)
+                        score_raw = getattr(r, 'score', None)
+
+                    if doc_id is None:
+                        continue
+
+                    if chart_choice == 'Rerank (raw)':
+                        if score_raw is None:
+                            continue
+                        chart_score = float(score_raw)
+                    elif chart_choice == 'Rerank (sigmoid)':
+                        if score_raw is None:
+                            continue
+                        chart_score = sigmoid(float(score_raw)) * 100.0
+                    else:  # Cosine (FAISS)
+                        cosine = original_scores.get(doc_id)
+                        if cosine is None:
+                            continue
+                        chart_score = map_cosine_to_01(float(cosine)) * 100.0
+
+                    chart_data.append({
+                        'Document': doc_id,
+                        'Score': chart_score,
+                    })
+
+                df_chart = pd.DataFrame(chart_data)
+                if not df_chart.empty:
+                    st.bar_chart(df_chart.set_index('Document')['Score'])
+            else:
+                st.warning("No semantic matches found for the query")
+
+    elif sub_menu == "Evaluation":
+        st.subheader("Evaluasi Komparatif: TF-IDF | SBERT+FAISS | SBERT+FAISS+Rerank")
+
+        from evaluation import load_qrels, evaluate_system, save_results_csv, get_summary_table
+
+        # Query input: upload CSV (query_id, query_text) or upload qrels CSV
+        uploaded = st.file_uploader("Upload queries CSV (query_id,query_text) OR qrels CSV (query_id,doc_id,relevance_score)", type=['csv'])
+        use_sample = st.checkbox("Use sample queries (3 queries)", value=False)
+
+        queries = {}
+        uploaded_qrels_used = False
+        if uploaded is not None:
+            try:
+                qdf = pd.read_csv(uploaded, dtype=str)
+                cols = [c.lower() for c in qdf.columns]
+                # Detect qrels upload
+                if 'doc_id' in cols and 'relevance_score' in cols and 'query_id' in cols:
+                    # Save uploaded qrels to workspace and load
+                    qdf.to_csv('qrels.csv', index=False)
+                    st.success('Uploaded file detected as qrels and saved to qrels.csv')
+                    uploaded_qrels_used = True
+                # Detect queries upload
+                elif 'query_id' in cols and 'query_text' in cols:
+                    for _, row in qdf.iterrows():
+                        qid = str(row['query_id']).strip()
+                        qtext = str(row['query_text']).strip()
+                        if qid and qtext:
+                            queries[qid] = qtext
+                    if queries:
+                        qdf.to_csv('queries.csv', index=False)
+                        st.success(f'Loaded {len(queries)} queries from uploaded file and saved as queries.csv')
+                    else:
+                        st.error('Uploaded queries CSV contains no valid rows')
+                else:
+                    st.error('Uploaded CSV not recognized. Provide either queries (query_id,query_text) or qrels (query_id,doc_id,relevance_score)')
+            except Exception as e:
+                st.error(f"Failed to read uploaded CSV: {e}")
+
+        # Load workspace query file if present
+        if not queries:
+            queries = load_queries_file('queries.csv')
+            if queries:
+                st.success(f'Loaded {len(queries)} queries from queries.csv')
+
+        if use_sample or (not queries and not uploaded_qrels_used):
+            sample_queries = [
+                "Kebutuhan energi saat ini meningkat pesat",
+                "manajemen energi sistem",
+                "efisiensi energi",
+            ]
+            # map to qrels IDs if available, else use 1..n
+            for i, q in enumerate(sample_queries, start=1):
+                queries[str(i)] = q
+
+        st.markdown(f"Loaded {len(queries)} queries for evaluation")
+
+        # Save uploaded queries file if detected
+        if uploaded is not None and not uploaded_qrels_used and queries:
+            try:
+                qdf = pd.read_csv(uploaded, dtype=str)
+                cols = [c.lower() for c in qdf.columns]
+                if 'query_id' in cols and 'query_text' in cols:
+                    qdf.to_csv('queries.csv', index=False)
+                    st.info('Uploaded query file saved as queries.csv in workspace')
+            except Exception:
+                pass
+
+        # Load qrels (may have been overwritten by uploaded qrels)
+        qrels_graded, qrels_binary = load_qrels('qrels.csv')
+        if qrels_graded is None:
+            st.error("qrels.csv not found in workspace. Place qrels.csv with columns (query_id,doc_id,relevance_score) or upload it above.")
+        else:
+            top_k_eval = st.slider('Top-K for evaluation', min_value=1, max_value=20, value=10)
+            run_eval = st.button('Run Evaluation')
+            if run_eval:
+                with st.spinner('Running evaluation for three systems...'):
+                    all_results = []
+
+                    # 1) TF-IDF baseline
+                    tfidf_calc_local = tfidf_calc  # from earlier calculate_tfidf
+                    vsm_calc_local = VSMCalculator(tfidf_calc_local, stemmer, load_stopwords())
+                    ranked_tf = {}
+                    for qid, qtext in queries.items():
+                        hits = vsm_calc_local.search(qtext, threshold=0)
+                        ranked_tf[qid] = [doc for doc, _ in hits[:top_k_eval]]
+                    res_tfidf = evaluate_system('TF-IDF (VSM)', ranked_tf, qrels_graded, qrels_binary, k=top_k_eval)
+                    all_results.append(res_tfidf)
+
+                    # 2) SBERT + FAISS (no rerank)
+                    ranked_bi = {}
+                    for qid, qtext in queries.items():
+                        try:
+                            faiss_hits = dense_engine.search(qtext, top_k=top_k_eval)
+                            ranked_bi[qid] = [r.doc_id for r in faiss_hits]
+                        except Exception:
+                            ranked_bi[qid] = []
+                    res_bi = evaluate_system('SBERT+FAISS', ranked_bi, qrels_graded, qrels_binary, k=top_k_eval)
+                    all_results.append(res_bi)
+
+                    # 3) SBERT + FAISS + Cross-Encoder rerank
+                    ranked_ce = {}
+                    for qid, qtext in queries.items():
+                        try:
+                            faiss_hits = dense_engine.search(qtext, top_k=top_k_eval)
+                            if getattr(dense_engine, 'reranker', None) is not None:
+                                reranked = dense_engine.rerank(qtext, faiss_hits)
+                                ranked_ce[qid] = [r.doc_id for r in reranked[:top_k_eval]]
+                            else:
+                                ranked_ce[qid] = [r.doc_id for r in faiss_hits]
+                        except Exception:
+                            ranked_ce[qid] = []
+                    res_ce = evaluate_system('SBERT+FAISS+CrossEncoder', ranked_ce, qrels_graded, qrels_binary, k=top_k_eval)
+                    all_results.append(res_ce)
+
+                # Show summary
+                st.success('Evaluation completed')
+                st.dataframe(get_summary_table(all_results))
+                csv_path = save_results_csv(all_results, output_path='hasil_evaluasi.csv')
+                st.markdown(f"Saved results to {csv_path}")
 
 # Footer
 st.markdown("---")

@@ -6,6 +6,19 @@ import math
 import re
 from collections import defaultdict
 
+import numpy as np
+from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import CrossEncoder
+except ImportError:
+    CrossEncoder = None
+
+try:
+    import faiss
+except ImportError:
+    faiss = None
+
 
 def build_inverted_index(records):
     """
@@ -308,5 +321,83 @@ class VSMCalculator:
             })
         
         return results, query_terms
+
+
+# ============================================================================
+# SEMANTIC SEARCH (Dense Retrieval)
+# ============================================================================
+
+def _normalize_embeddings(embeddings):
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return embeddings / norms
+
+
+def build_faiss_index(embeddings):
+    if faiss is None:
+        raise ImportError('faiss is required for semantic search but is not installed')
+
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatIP(dim)
+    index.add(embeddings.astype('float32'))
+    return index
+
+
+class SemanticSearch:
+    """Dense retrieval using SBERT embeddings and FAISS."""
+
+    def __init__(self, documents, model_name='paraphrase-multilingual-MiniLM-L12-v2', rerank_model_name='cross-encoder/ms-marco-MiniLM-L-6-v2', use_rerank=False):
+        self.documents = documents
+        self.doc_ids = [rec['DocID'] if isinstance(rec, dict) and 'DocID' in rec else f'Doc {i+1}' for i, rec in enumerate(documents)]
+        self.texts = [rec['Teks Mentah'] if isinstance(rec, dict) and 'Teks Mentah' in rec else str(rec) for rec in documents]
+        self.model_name = model_name
+        self.rerank_model_name = rerank_model_name
+        self.use_rerank = use_rerank and CrossEncoder is not None
+        self.model = None
+        self.cross_encoder = None
+        self.embeddings = None
+        self.index = None
+        self._build_index()
+
+    def _build_index(self):
+        self.model = SentenceTransformer(self.model_name)
+        self.embeddings = self.model.encode(self.texts, convert_to_numpy=True, show_progress_bar=False, normalize_embeddings=True)
+        if self.embeddings.ndim == 1:
+            self.embeddings = np.expand_dims(self.embeddings, axis=0)
+        self.embeddings = _normalize_embeddings(self.embeddings)
+        self.index = build_faiss_index(self.embeddings)
+
+        if self.use_rerank:
+            self.cross_encoder = CrossEncoder(self.rerank_model_name)
+
+    def search(self, query_text, top_k=10, rerank=False):
+        if not query_text or not query_text.strip():
+            return []
+
+        query_embedding = self.model.encode([query_text], convert_to_numpy=True, show_progress_bar=False, normalize_embeddings=True)
+        if query_embedding.ndim == 1:
+            query_embedding = np.expand_dims(query_embedding, axis=0)
+        query_embedding = _normalize_embeddings(query_embedding)
+
+        distances, indices = self.index.search(query_embedding.astype('float32'), min(top_k, len(self.texts)))
+        hits = []
+        for score, idx in zip(distances[0], indices[0]):
+            if idx < 0 or idx >= len(self.texts):
+                continue
+            hits.append({
+                'DocID': self.doc_ids[idx],
+                'Score': float(score),
+                'Text Preview': self.texts[idx][:120] + '...' if len(self.texts[idx]) > 120 else self.texts[idx],
+                'Full Text': self.texts[idx],
+            })
+
+        if rerank and self.use_rerank and self.cross_encoder is not None and hits:
+            pairs = [[query_text, hit['Full Text']] for hit in hits]
+            rerank_scores = self.cross_encoder.predict(pairs)
+            for hit, new_score in zip(hits, rerank_scores):
+                hit['Rerank Score'] = float(new_score)
+            hits.sort(key=lambda item: item['Rerank Score'], reverse=True)
+
+        return hits
 
 

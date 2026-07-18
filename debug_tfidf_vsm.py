@@ -123,6 +123,8 @@ def debug_vsm_search(tfidf_calc, records, query_text, preprocessing_func, stemme
         
         if query_magnitude == 0 or doc_magnitude == 0:
             similarity = 0
+        else if:
+            
         else:
             similarity = dot_prod / (query_magnitude * doc_magnitude)
         
