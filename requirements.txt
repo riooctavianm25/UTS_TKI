@@ -1,6 +1,0 @@
-sentence-transformers
-faiss-cpu
-scikit-learn
-pandas
-streamlit
-torch
