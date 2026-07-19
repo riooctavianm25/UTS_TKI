@@ -1,8 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.streamlit/
+.cache/
+
+# Output/Temporary Files
+hasil_evaluasi*.csv
+debug_*.py
+check_*.py
+test_*.py
+*.log
+improve_qrels.py
+qrels_improved.csv
+qrels_original.csv
+IR_*.csv
+IR_*.xlsx
+
+# PDFs (external resources)
+*.pdf
 /27602-Article Text-73091-1-10-20250704.pdf
 /7738-Article Text-31483-2-10-20240331.pdf
 /afri,+Journal+editor,+229-99Z_Article+Text-522-1-2-20200810 (1).pdf
 /afri,+Journal+editor,+229-99Z_Article+Text-522-1-2-20200810.pdf
 /Studi_Manajemen_Energi_Listrik_di_RSUD_K.pdf
 /Transkrip Akademik (id)_3012310037.pdf
+
+# Folders
 /UTS
 /uts_tki
+/data_backup
+
+# OS
+.DS_Store
+Thumbs.db

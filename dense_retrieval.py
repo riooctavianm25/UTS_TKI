@@ -43,7 +43,7 @@ class DenseRetrievalEngine:
         self,
         records,
         text_field="SBERT Clean Text",
-        model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+        model_name="sentence-transformers/all-mpnet-base-v2",
     ):
         """
         Inisialisasi mesin retrieval.
