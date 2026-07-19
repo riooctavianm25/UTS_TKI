@@ -4,6 +4,7 @@ Pipeline legacy TF-IDF/VSM tidak diubah. Modul ini dimuat secara lazy
 sehingga aplikasi tetap berjalan meskipun dependensi dense retrieval belum terpasang.
 """
 
+import re
 from dataclasses import dataclass
 
 
@@ -62,16 +63,28 @@ class DenseRetrievalEngine:
         # Ambil teks untuk setiap dokumen saat inisialisasi
         self.doc_texts = [self._get_doc_text(rec) for rec in records]
 
+    def _clean_text(self, text):
+        """Jaga teks tetap natural untuk SBERT/BERT: tidak stemming, tidak hapus stopword, hanya normalisasi ringan."""
+        if text is None:
+            return ""
+        if not isinstance(text, str):
+            text = str(text)
+        text = text.strip()
+        text = re.sub(r'https?://\S+|www\.\S+', ' ', text)
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+
     def _get_doc_text(self, record):
         """
         Ambil teks dokumen dengan prioritas kolom:
         SBERT Clean Text > Case Folding > Teks Mentah
         """
-        return (
+        raw_text = (
             record.get(self.text_field)
             or record.get("Case Folding")
             or record.get("Teks Mentah", "")
         )
+        return self._clean_text(raw_text)
 
     def _require_sentence_transformers(self):
         """Periksa apakah sentence-transformers sudah terpasang, lempar error jika belum."""
@@ -165,7 +178,8 @@ class DenseRetrievalEngine:
 
         # Encode query menjadi vektor embedding
         model = self.load_bi_encoder()
-        query_embedding = model.encode([query_text], normalize_embeddings=True)
+        cleaned_query = self._clean_text(query_text)
+        query_embedding = model.encode([cleaned_query], normalize_embeddings=True)
         query_embedding = query_embedding.astype("float32")
 
         # Cari top-k kandidat di FAISS

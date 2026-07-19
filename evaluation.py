@@ -122,18 +122,23 @@ def save_results_csv(all_results, output_path="hasil_evaluasi.csv"):
     rows = []
     for result in all_results:
         system = result['system']
-        rows.append({'Sistem': system, 'Query': 'RATA-RATA', 'MAP@10': result['map'], 'MRR@10': result['mrr'], 'NDCG@10': result['ndcg']})
+        rows.append({'Sistem': system, 'Query': 'RATA-RATA', 'MAP': result['map'], 'MRR': result['mrr'], 'NDCG': result['ndcg']})
         for pq in result['per_query']:
-            rows.append({'Sistem': system, 'Query': pq['query_id'], 'MAP@10': pq['ap'], 'MRR@10': pq['rr'], 'NDCG@10': pq['ndcg']})
+            rows.append({'Sistem': system, 'Query': pq['query_id'], 'MAP': pq['ap'], 'MRR': pq['rr'], 'NDCG': pq['ndcg']})
     df = pd.DataFrame(rows)
     df.to_csv(output_path, index=False, encoding='utf-8-sig')
     return output_path
 
 
-def get_summary_table(all_results):
+def get_summary_table(all_results, k=10):
     rows = []
     for result in all_results:
-        rows.append({'Sistem': result['system'], 'MAP@10': result['map'], 'MRR@10': result['mrr'], 'NDCG@10': result['ndcg']})
+        rows.append({
+            'Sistem': result['system'],
+            f'MAP@{k}': result['map'],
+            f'MRR@{k}': result['mrr'],
+            f'NDCG@{k}': result['ndcg'],
+        })
     return pd.DataFrame(rows)
 
 

@@ -35,6 +35,59 @@ def load_stopwords():
         'iot', 'sni', 'kwh', 'rsud', 'smk', 'umkm',
     }
 
+
+def clean_text_for_sbert(text):
+    """Buat representasi teks natural untuk SBERT/BERT tanpa stemming atau stopword removal."""
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    text = text.strip()
+    text = re.sub(r'https?://\S+|www\.\S+', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+
+def preprocess_tfidf(text, stemmer, stopwords):
+    """Pipeline preprocessing untuk TF-IDF/VSM."""
+    def case_folding(text):
+        text = text.lower()
+        text = re.sub(r'\(.*?\)', ' ', text)
+        text = re.sub(r'[^a-z\s]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+
+    def tokenisasi(text):
+        return [t for t in text.split() if len(t) >= 3]
+
+    def hapus_stopword(tokens):
+        return [t for t in tokens if t not in stopwords]
+
+    def stemming(tokens):
+        hasil = []
+        for t in tokens:
+            stem = stemmer.stem(t)
+            if stem not in stopwords and len(stem) >= 3:
+                hasil.append(stem)
+        return hasil
+
+    folded = case_folding(text)
+    tokens = tokenisasi(folded)
+    no_stop = hapus_stopword(tokens)
+    stemmed = stemming(no_stop)
+    return {
+        'Case Folding': folded,
+        'Tokenisasi': tokens,
+        'Stopword Removal': no_stop,
+        'Stemming': stemmed,
+    }
+
+
+def preprocess_sbert(text):
+    """Pipeline preprocessing ringan untuk SBERT/BERT."""
+    return clean_text_for_sbert(text)
+
+
 @st.cache_data
 def load_queries_file(path='queries.csv'):
     if not os.path.exists(path):
@@ -80,39 +133,17 @@ def load_data():
         if len(line) > 10:
             sentences.append(line)
 
-    def case_folding(text):
-        text = text.lower()
-        text = re.sub(r'\(.*?\)', ' ', text)
-        text = re.sub(r'[^a-z\s]', ' ', text)
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
-
-    def tokenisasi(text):
-        return [t for t in text.split() if len(t) >= 3]
-
-    def hapus_stopword(tokens):
-        return [t for t in tokens if t not in stopwords]
-
-    def stemming(tokens):
-        hasil = []
-        for t in tokens:
-            stem = stemmer.stem(t)
-            if stem not in stopwords and len(stem) >= 3:
-                hasil.append(stem)
-        return hasil
-
     def preprocessing(doc_id, raw_text):
-        folded = case_folding(raw_text)
-        tokens = tokenisasi(folded)
-        no_stop = hapus_stopword(tokens)
-        stemmed = stemming(no_stop)
+        tfidf_result = preprocess_tfidf(raw_text, stemmer, stopwords)
+        sbert_text = preprocess_sbert(raw_text)
         return {
             'DocID': doc_id,
             'Teks Mentah': raw_text.strip(),
-            'Case Folding': folded,
-            'Tokenisasi': tokens,
-            'Stopword Removal': no_stop,
-            'Stemming': stemmed,
+            'Case Folding': tfidf_result['Case Folding'],
+            'Tokenisasi': tfidf_result['Tokenisasi'],
+            'Stopword Removal': tfidf_result['Stopword Removal'],
+            'Stemming': tfidf_result['Stemming'],
+            'SBERT Clean Text': sbert_text,
         }
 
     records = []
@@ -186,6 +217,24 @@ def style_dataframe_gradient(df, columns=None):
     if columns is None:
         columns = df.columns
     return df.style.applymap(lambda x: gradient_color(x) if isinstance(x, (int, float)) else '')
+
+
+def build_hybrid_candidate_ranking(tfidf_candidates, dense_hits, top_k, max_candidates=20):
+    """Bangun ranking gabungan lexical-semantic agar evaluasi SBERT lebih adil."""
+    if not tfidf_candidates and not dense_hits:
+        return []
+
+    lexical_ids = [doc_id for doc_id in tfidf_candidates[:max_candidates] if doc_id]
+    semantic_ids = [getattr(hit, 'doc_id', None) for hit in dense_hits[:max_candidates] if getattr(hit, 'doc_id', None)]
+
+    ordered_ids = []
+    seen = set()
+    for doc_id in lexical_ids + semantic_ids:
+        if doc_id and doc_id not in seen:
+            ordered_ids.append(doc_id)
+            seen.add(doc_id)
+
+    return ordered_ids[:top_k]
 
 # Sidebar Navigation
 st.sidebar.title("Navigation")
@@ -570,7 +619,7 @@ else:
                     st.bar_chart(df_chart.set_index('Document')['Score'])
             else:
                 st.warning(f"No documents found with similarity >= {search_threshold:.2f}")
-
+    
     elif sub_menu == "Semantic Search":
         st.subheader("Semantic Search (SBERT + FAISS)")
         st.markdown("Search using dense document embeddings and approximate nearest neighbor retrieval.")
@@ -832,7 +881,7 @@ else:
         if qrels_graded is None:
             st.error("qrels.csv not found in workspace. Place qrels.csv with columns (query_id,doc_id,relevance_score) or upload it above.")
         else:
-            top_k_eval = st.slider('Top-K for evaluation', min_value=1, max_value=20, value=10)
+            top_k_eval = st.slider('Top-K for evaluation', min_value=1, max_value=20, value=5)
             run_eval = st.button('Run Evaluation')
             if run_eval:
                 with st.spinner('Running evaluation for three systems...'):
@@ -853,7 +902,7 @@ else:
                     for qid, qtext in queries.items():
                         try:
                             faiss_hits = dense_engine.search(qtext, top_k=top_k_eval)
-                            ranked_bi[qid] = [r.doc_id for r in faiss_hits]
+                            ranked_bi[qid] = [r.doc_id for r in faiss_hits[:top_k_eval]]
                         except Exception:
                             ranked_bi[qid] = []
                     res_bi = evaluate_system('SBERT+FAISS', ranked_bi, qrels_graded, qrels_binary, k=top_k_eval)
@@ -863,12 +912,12 @@ else:
                     ranked_ce = {}
                     for qid, qtext in queries.items():
                         try:
-                            faiss_hits = dense_engine.search(qtext, top_k=top_k_eval)
+                            faiss_hits = dense_engine.search(qtext, top_k=max(top_k_eval * 4, 20))
                             if getattr(dense_engine, 'reranker', None) is not None:
                                 reranked = dense_engine.rerank(qtext, faiss_hits)
                                 ranked_ce[qid] = [r.doc_id for r in reranked[:top_k_eval]]
                             else:
-                                ranked_ce[qid] = [r.doc_id for r in faiss_hits]
+                                ranked_ce[qid] = [r.doc_id for r in faiss_hits[:top_k_eval]]
                         except Exception:
                             ranked_ce[qid] = []
                     res_ce = evaluate_system('SBERT+FAISS+CrossEncoder', ranked_ce, qrels_graded, qrels_binary, k=top_k_eval)
@@ -879,6 +928,7 @@ else:
                 st.dataframe(get_summary_table(all_results))
                 csv_path = save_results_csv(all_results, output_path='hasil_evaluasi.csv')
                 st.markdown(f"Saved results to {csv_path}")
+                
 
 # Footer
 st.markdown("---")
