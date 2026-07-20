@@ -810,13 +810,13 @@ else:
                 st.warning("No semantic matches found for the query")
 
     elif sub_menu == "Evaluation":
-        st.subheader("Evaluasi Komparatif: TF-IDF | SBERT+FAISS | SBERT+FAISS+Rerank")
+        st.subheader("Evaluasi Komparatif")
 
         from evaluation import load_qrels, evaluate_system, save_results_csv, get_summary_table
 
         # Query input: upload CSV (query_id, query_text) or upload qrels CSV
         uploaded = st.file_uploader("Upload queries CSV (query_id,query_text) OR qrels CSV (query_id,doc_id,relevance_score)", type=['csv'])
-        use_sample = st.checkbox("Use sample queries (3 queries)", value=False)
+        use_sample = st.checkbox("Use sample queries", value=False)
 
         queries = {}
         uploaded_qrels_used = False
@@ -881,6 +881,27 @@ else:
         if qrels_graded is None:
             st.error("qrels.csv not found in workspace. Place qrels.csv with columns (query_id,doc_id,relevance_score) or upload it above.")
         else:
+            qrels_qids = sorted(set(list(qrels_graded.keys()) + list(qrels_binary.keys())))
+            if queries:
+                original_query_ids = list(queries.keys())
+                queries = {qid: qtext for qid, qtext in queries.items() if qid in qrels_qids}
+                invalid_qids = [qid for qid in original_query_ids if qid not in qrels_qids]
+                if invalid_qids:
+                    st.warning(
+                        'Ignored the following query IDs because they are not present in qrels.csv: '
+                        + ', '.join(invalid_qids)
+                    )
+
+            if not queries:
+                queries = {qid: f'Query {qid}' for qid in qrels_qids}
+                st.info(
+                    'No query texts were available for qrels query IDs. Using qrels query IDs as evaluation labels.'
+                )
+
+            st.markdown(
+                f"Evaluating exactly {len(queries)} ground-truth queries from qrels.csv: {', '.join(sorted(queries.keys()))}"
+            )
+
             top_k_eval = st.slider('Top-K for evaluation', min_value=1, max_value=20, value=5)
             run_eval = st.button('Run Evaluation')
             if run_eval:
@@ -926,14 +947,4 @@ else:
                 # Show summary
                 st.success('Evaluation completed')
                 st.dataframe(get_summary_table(all_results))
-                csv_path = save_results_csv(all_results, output_path='hasil_evaluasi.csv')
-                st.markdown(f"Saved results to {csv_path}")
-                
-
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray; font-size: 12px;'>
-    Information Retrieval System | Manajemen Energi Dataset | TF-IDF + Cosine Similarity | Built with Streamlit
-</div>
-""", unsafe_allow_html=True)
+            

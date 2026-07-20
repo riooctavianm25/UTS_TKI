@@ -1,15 +1,3 @@
-"""
-Modul Evaluasi Sistem IR (Information Retrieval).
-
-Mengimplementasikan metrik evaluasi standar IR sesuai PRD Bab 8:
-- MAP@k  (Mean Average Precision)
-- MRR@k  (Mean Reciprocal Rank)
-- NDCG@k (Normalized Discounted Cumulative Gain)
-
-Modul ini digunakan oleh app.py untuk mengevaluasi dan membandingkan
-tiga sistem secara nyata: TF-IDF Baseline, SBERT-Only, dan SBERT + Cross-Encoder.
-"""
-
 import math
 import os
 import re
